@@ -31,7 +31,7 @@
 
 addon.name      = 'partyramaxi';
 addon.author    = 'Banedon (based on hideparty by atom0s)';
-addon.version   = '1.0.1';
+addon.version   = '1.0.2';
 addon.desc      = 'Party and alliance list, target bar, pointer and recast timers that replace the game\'s own windows.';
 addon.link      = 'https://ashitaxi.com/';
 
@@ -1286,13 +1286,18 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     -- 1.0.0: effects on the docked card, drawn like the party list's status icons (its size, countdown, sort and pins),
     -- in a row under the card; the panel grows to hold them (next frame, like the rest of the card)
     if dock_fx then
+        -- 1.0.2: they wrap at the panel's inner width (from its left edge), so every icon stays inside the card, at the
+        -- card's own icon size and countdown switch
         local sid = e:GetServerId(idx) or 0
-        local x0 = IB.n > 0 and IB.x0 or hpp.pos.x
+        local B, p = DOCK.box, DOCK.pad
+        local x0, iw = B[1] + p, math.max(1, (B[3] - B[1]) - 2 * p)
         local y0 = (IB.n > 0 and IB.y1 or hpp.pos.y) + 4
-        local ok, fw, fh = pcall(PList.buffs_ext, dl, hpp.s.list.buffs, sid, x0, y0, (IB.n > 0 and (IB.x1 - IB.x0) or 0), dm, now)
+        local ok, fw, fh = pcall(PList.buffs_ext, dl, hpp.s.list.buffs, sid, x0, y0, iw, dm, now, I.dock_fx_size, I.dock_fx_timers ~= false)
         if ok and (fh or 0) > 0 then
+            -- only the height grows the card: the icons never reach past the panel's sides, and its width stays the
+            -- list's (or the card's), so the card is not pushed sideways by its own icons
             if IB.n == 0 then IB.x0, IB.y0, IB.x1, IB.y1 = x0, y0, x0 + fw, y0 + fh
-            else IB.x1, IB.y1 = math.max(IB.x1, x0 + fw), math.max(IB.y1, y0 + fh) end
+            else IB.y1 = math.max(IB.y1, y0 + fh) end
             IB.n = IB.n + 1
         elseif not ok and not hpp.dock_fx_err then hpp.dock_fx_err = true; err('Effects on the docked card are off after an error: ' .. tostring(fw)) end
     end
@@ -2673,9 +2678,13 @@ ashita.events.register('command', 'partyramaxi_command', function (e)
         hpp.pending = { cmd = e.command, at = hpp.clock() }
     end
     -- 2.13.2: a /check of yours (not one the target bar queued) shows its reply in the chat log as usual
+    -- 1.0.2: Ashita marks commands sent by addons as injected. A typed /check is the only one not injected, so another
+    -- addon's /check (or an old copy of this one still loaded) no longer counts as yours and shows its reply.
     if c == '/check' or c == '/c' then
+        local inj = e.injected
+        if hpp.check_dbg then msg(('Check debug: command "%s", injected %s, mode %s'):format(tostring(e.command), tostring(inj), tostring(e.mode))) end
         if (hpp.ac_queued or 0) > 0 and e.command:lower() == '/check <t>' then hpp.ac_queued = hpp.ac_queued - 1
-        else hpp.user_check_at = hpp.clock() end
+        elseif inj ~= true then hpp.user_check_at = hpp.clock() end
     end
     -- 2.12.0: follow the game's /names (on / off / toggle) so the target bar can leave out names the game already shows
     -- 2.13.2: and learn which of the game's settings it changes, to read it from then on (hpp.names_shown)

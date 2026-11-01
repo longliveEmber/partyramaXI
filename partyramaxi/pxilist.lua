@@ -843,10 +843,19 @@ end
 -- 1.0.0: the party list's status icons for another module (the docked target card): the effects on server id sid,
 -- drawn with the party list's icon settings (B = list.buffs: size, countdown, sort, pins, flash...), left-aligned
 -- at x, y in a box w px wide. Returns the width and height used (0, 0 = nothing on it).
+-- 1.0.2: size (px, nil = the list's) and timers (countdown on / off) are the card's own; the icons always wrap at w,
+-- so none reach past the box.
 local XR = { sid = 0, slot = -1, buffs = {}, nbuffs = 0 }
 local XL = {}
-function M.buffs_ext(dl, B, sid, x, y, w, alpha, now)
+local XB, XB_src = {}, nil          -- the list's settings with the card's own size, countdown and wrapping on top
+function M.buffs_ext(dl, B, sid, x, y, w, alpha, now, size, timers)
     if type(B) ~= 'table' or sid == nil or sid == 0 then return 0, 0 end
+    if XB_src ~= B then XB = setmetatable({}, { __index = B }); XB_src = B end
+    rawset(XB, 'size', math.max(8, math.floor(tonumber(size) or tonumber(B.size) or 16)))
+    rawset(XB, 'timers', timers == nil and B.timers or (timers and true or false))
+    rawset(XB, 'fit', true)
+    rawset(XB, 'per_row', 99)
+    B = XB
     local n = Fx.active and Fx.active(sid, now, { show_unknown = true }, XL) or 0
     XR.sid, XR.nbuffs = sid, 0
     for i = 1, n do
@@ -1117,9 +1126,11 @@ local function draw_card(dl, L, r, x0, y0, w, h, compact, state, hovered, now)
     local lw = ((state.select or state.target) and S.lift ~= false) and 1 or 0
     local lv = a.lift or 0
     if lv ~= lw then lv = (lw > lv) and math.min(lw, lv + dt / 0.15) or math.max(lw, lv - dt / 0.15); a.lift = lv end
+    local ldx, ldy = 0, 0                                -- 1.0.2: the lift, so icons placed off the card can ignore it
     if lv > 0 then
         local e = lv * lv * (3 - 2 * lv)
-        x0, y0 = x0 + (tonumber(S.move_dx) or 6) * e, y0 + (tonumber(S.move_dy) or 0) * e
+        ldx, ldy = (tonumber(S.move_dx) or 6) * e, (tonumber(S.move_dy) or 0) * e
+        x0, y0 = x0 + ldx, y0 + ldy
     end
     local x1, y1 = x0 + w, y0 + h
     if EREC then Draw.hl_rect('list', 'card', x0, y0, x1, y1) end
@@ -1355,20 +1366,25 @@ local function draw_card(dl, L, r, x0, y0, w, h, compact, state, hovered, now)
         y = y + vg
         if r.nbuffs > 0 then
             local bx0, by0 = ix, y
-            local bar_, bup = false, false
+            local bar_, bup, biw = false, false, iw
             if not fit then
                 -- placed anywhere: the icons keep to the side of their box that faces the cards (the right edge when the
                 -- box is left of the card, the bottom row first and further rows upward when it is above the card)
-                bx0, by0 = ix + (tonumber(B.dx) or 0), y + (tonumber(B.dy) or 0)
+                -- 1.0.2: they stay put when the card is selected: its lift (moves a few px) and its extra width are
+                -- taken off, so the box is where the unselected card would put it
+                local base_w = card_wh(L, r.slot >= 6 and 'alliance' or 'party', false)
+                biw = iw - math.max(0, w - base_w)
+                local cx0, cy0 = x0 - ldx, y0 - ldy
+                bx0, by0 = ix - ldx + (tonumber(B.dx) or 0), y - ldy + (tonumber(B.dy) or 0)
                 local _, _, _, pxs, pys = buff_geom(B)
                 local gap = tonumber(B.gap) or 1
-                bar_ = bx0 + iw / 2 < x0 and bx0 + iw <= x0 + 1
-                bup = by0 + pys - gap <= y0 + 1
+                bar_ = bx0 + biw / 2 < cx0 and bx0 + biw <= cx0 + 1
+                bup = by0 + pys - gap <= cy0 + 1
                 local per = math.max(1, math.floor(tonumber(B.per_row) or 12))
                 local rows = math.max(1, math.ceil(math.min(r.nbuffs, math.floor(tonumber(B.max) or 24)) / per))
                 local bh_ = rows * pys - gap
                 local top = bup and (by0 + pys - gap - bh_) or by0
-                hit('buffs', bx0 - 2, top - 2, bx0 + iw + 2, top + bh_ + 2, bx0, by0 + B.size / 2, 'left')   -- the box, 2 px around the icons
+                hit('buffs', bx0 - 2, top - 2, bx0 + biw + 2, top + bh_ + 2, bx0, by0 + B.size / 2, 'left')   -- the box, 2 px around the icons
             else
                 -- under the lowest element of the card (icon, name, job, note, bars, action, with their offsets) plus the
                 -- padding; the card's set height (without the growth now applied) must reach the last row plus the
@@ -1380,7 +1396,7 @@ local function draw_card(dl, L, r, x0, y0, w, h, compact, state, hovered, now)
                 local _, hb = card_wh(L, r.slot >= 6 and 'alliance' or 'party', state ~= nil and state.select == true)
                 a.bx_want = math.max(0, math.floor(need - hb + 0.5))
             end
-            defer(L, 'buffs', buff_icons, dl, B, r, bx0, by0, iw, bar_, bup)
+            defer(L, 'buffs', buff_icons, dl, B, r, bx0, by0, biw, bar_, bup)
         end
     end
     HITKEY = nil

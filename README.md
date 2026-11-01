@@ -115,7 +115,7 @@ The target bar sits next to your target. Enemies, players and NPCs each have the
 2. **Off screen**, the target docks as a card above the party list, as wide as the list and in its frame. It fades in, and RecastXI slides up only if the gap can't fit the card. By default the card keeps to name, health and distance; untick that to see everything the bar shows.
 3. **Pin it there for the current target** keeps your target docked even when it's on screen. **Keep the bar over the target too** shows both.
 
-With **Effects like the party list** on, the effects on the docked target are drawn exactly like the party list's status icons: the same size, countdown, sort and pins. These live in **Target bar > General > Docked card**.
+With **Effects like the party list** on, the effects on the docked target are drawn like the party list's status icons, with the same countdown look, sort and pins. They wrap into more rows so every icon stays inside the card, and the card has its own **Card icon size** and **Countdown on the card icons** switch. These live in **Target bar > General > Docked card**.
 
 ---
 

@@ -72,6 +72,8 @@ local D = T{
         dock_pin   = false,         -- 2.12.2: the current target always shows docked there, on screen or not
         dock_simple = true,         -- 2.12.3: the docked card shows only name, health bar and distance
         dock_fx = true,             -- 1.0.0: effects on the docked card, drawn like the party list's status icons
+        dock_fx_size = 32,          -- 1.0.2: ...at their own size (px), wrapped to stay inside the card
+        dock_fx_timers = true,      -- 1.0.2: ...with their own countdown switch (the countdown's look follows the party list)
         dock_float = false,         -- 2.12.7: pinned: the bar also stays over the target (both shown)
         glide_x    = 0,             -- in battle every element eases this far across (0 = off)
         glide_ease = 'smooth',      -- how the glide moves out: smooth | smoother | ease_in | back | bounce | spring (the way back plays it in reverse)
