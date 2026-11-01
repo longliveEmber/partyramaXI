@@ -1,0 +1,6 @@
+# per-character data the addon writes at run time
+partyramaxi/data/*
+!partyramaxi/data/README.txt
+# icon packs are never shipped
+partyramaxi/icons/packs/*/
+partyramaxi/trace.txt
