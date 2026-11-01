@@ -277,10 +277,11 @@ end
 
 -- Colored buttons at the top of every tab: Enable (green on / red off) and Test (blue, amber while running,
 -- grey when the tab has nothing to preview).
+local OWN_COLORS = false          -- 1.0.1: set while a button with its own colors is drawn (no styling by kind)
 local BTN = {
-    on      = { { 0.16, 0.52, 0.24, 1 }, { 0.20, 0.62, 0.30, 1 }, { 0.12, 0.44, 0.20, 1 } },
-    off     = { { 0.52, 0.18, 0.18, 1 }, { 0.62, 0.22, 0.22, 1 }, { 0.44, 0.14, 0.14, 1 } },
-    test    = { { 0.18, 0.38, 0.66, 1 }, { 0.24, 0.46, 0.76, 1 }, { 0.14, 0.32, 0.58, 1 } },
+    on      = { { 0.18, 0.42, 0.25, 1 }, { 0.23, 0.52, 0.31, 1 }, { 0.15, 0.36, 0.21, 1 } },     -- 1.0.1: mockup colors
+    off     = { { 0.48, 0.18, 0.20, 1 }, { 0.59, 0.23, 0.25, 1 }, { 0.39, 0.14, 0.16, 1 } },
+    test    = { { 0.18, 0.30, 0.50, 1 }, { 0.24, 0.39, 0.65, 1 }, { 0.15, 0.24, 0.41, 1 } },
     testing = { { 0.78, 0.55, 0.10, 1 }, { 0.88, 0.62, 0.12, 1 }, { 0.70, 0.48, 0.08, 1 } },
     none    = { { 0.30, 0.30, 0.32, 1 }, { 0.30, 0.30, 0.32, 1 }, { 0.30, 0.30, 0.32, 1 } },
 }
@@ -291,8 +292,11 @@ local function colored_button(label, set, size)
     imgui.PushStyleColor(ImGuiCol_Button, set[1])
     imgui.PushStyleColor(ImGuiCol_ButtonHovered, set[2])
     imgui.PushStyleColor(ImGuiCol_ButtonActive, set[3])
-    local r = imgui.Button(label, size or BTN_SIZE)
+    OWN_COLORS = true
+    local ok, r = pcall(imgui.Button, label, size or BTN_SIZE)
+    OWN_COLORS = false
     imgui.PopStyleColor(3)
+    if not ok then error(r, 0) end
     return r
 end
 -- Returns 'enable' or 'test' when one was pressed. test_on = nil: the tab has no test (grey button, tooltip says why).
@@ -560,15 +564,30 @@ end
 -- Sub-tabs inside a module's tab. While the settings search runs, every sub-tab is searched (no tab bar drawn).
 -- 2.9.2: clearer tabs and buttons. The window's own tabs are blue, sub-tabs teal; plain buttons get a lighter fill
 -- and a thin border so they stand apart from the background. Constants missing in this ImGui are skipped.
+-- 1.0.1: the window's look follows the GitHub page mockup: dark slate panels, blue frames and buttons, rounded corners,
+-- teal sub-tabs, the Inter font. Constants missing in this ImGui are skipped.
+local function rgb(r, g, b, a) return { r / 255, g / 255, b / 255, a or 1 } end
 local WIN_COLS = {
-    { 'ImGuiCol_Tab', { 0.15, 0.18, 0.25, 1 } }, { 'ImGuiCol_TabHovered', { 0.30, 0.46, 0.72, 1 } },
-    { 'ImGuiCol_TabActive', { 0.22, 0.47, 0.85, 1 } }, { 'ImGuiCol_TabSelected', { 0.22, 0.47, 0.85, 1 } },
-    { 'ImGuiCol_Button', { 0.24, 0.29, 0.39, 1 } }, { 'ImGuiCol_ButtonHovered', { 0.34, 0.42, 0.57, 1 } },
-    { 'ImGuiCol_ButtonActive', { 0.18, 0.22, 0.31, 1 } }, { 'ImGuiCol_Border', { 0.50, 0.57, 0.70, 0.55 } },
+    { 'ImGuiCol_WindowBg', rgb(18, 20, 27, 0.97) }, { 'ImGuiCol_ChildBg', { 0, 0, 0, 0 } }, { 'ImGuiCol_PopupBg', rgb(16, 20, 29, 0.98) },
+    { 'ImGuiCol_Border', rgb(58, 66, 88) }, { 'ImGuiCol_BorderShadow', { 0, 0, 0, 0 } },
+    { 'ImGuiCol_TitleBg', rgb(34, 53, 92) }, { 'ImGuiCol_TitleBgActive', rgb(34, 53, 92) }, { 'ImGuiCol_TitleBgCollapsed', rgb(26, 40, 70) },
+    { 'ImGuiCol_Text', rgb(227, 231, 239) }, { 'ImGuiCol_TextDisabled', rgb(141, 151, 171) },
+    { 'ImGuiCol_FrameBg', rgb(35, 42, 58) }, { 'ImGuiCol_FrameBgHovered', rgb(45, 55, 76) }, { 'ImGuiCol_FrameBgActive', rgb(52, 64, 90) },
+    { 'ImGuiCol_CheckMark', { 1, 1, 1, 1 } },
+    { 'ImGuiCol_SliderGrab', rgb(93, 142, 232) }, { 'ImGuiCol_SliderGrabActive', rgb(130, 170, 245) },
+    { 'ImGuiCol_Button', rgb(47, 77, 128) }, { 'ImGuiCol_ButtonHovered', rgb(62, 100, 165) }, { 'ImGuiCol_ButtonActive', rgb(38, 62, 104) },
+    { 'ImGuiCol_Header', rgb(47, 77, 128, 0.70) }, { 'ImGuiCol_HeaderHovered', rgb(62, 100, 165, 0.80) }, { 'ImGuiCol_HeaderActive', rgb(56, 120, 217) },
+    { 'ImGuiCol_Separator', rgb(52, 61, 82) }, { 'ImGuiCol_SeparatorHovered', rgb(93, 142, 232) }, { 'ImGuiCol_SeparatorActive', rgb(93, 142, 232) },
+    { 'ImGuiCol_ScrollbarBg', rgb(18, 20, 27, 0.6) }, { 'ImGuiCol_ScrollbarGrab', rgb(52, 61, 82) },
+    { 'ImGuiCol_ScrollbarGrabHovered', rgb(68, 80, 108) }, { 'ImGuiCol_ScrollbarGrabActive', rgb(93, 142, 232) },
+    { 'ImGuiCol_ResizeGrip', rgb(56, 120, 217, 0.25) }, { 'ImGuiCol_ResizeGripHovered', rgb(56, 120, 217, 0.6) }, { 'ImGuiCol_ResizeGripActive', rgb(56, 120, 217) },
+    { 'ImGuiCol_Tab', rgb(33, 47, 51) }, { 'ImGuiCol_TabHovered', rgb(36, 120, 115) },
+    { 'ImGuiCol_TabActive', rgb(33, 148, 140) }, { 'ImGuiCol_TabSelected', rgb(33, 148, 140) },
+    { 'ImGuiCol_TextSelectedBg', rgb(56, 120, 217, 0.45) },
 }
 local SUB_COLS = {
-    { 'ImGuiCol_Tab', { 0.13, 0.21, 0.23, 1 } }, { 'ImGuiCol_TabHovered', { 0.22, 0.50, 0.50, 1 } },
-    { 'ImGuiCol_TabActive', { 0.13, 0.58, 0.55, 1 } }, { 'ImGuiCol_TabSelected', { 0.13, 0.58, 0.55, 1 } },
+    { 'ImGuiCol_Tab', rgb(33, 47, 51) }, { 'ImGuiCol_TabHovered', rgb(36, 120, 115) },
+    { 'ImGuiCol_TabActive', rgb(33, 148, 140) }, { 'ImGuiCol_TabSelected', rgb(33, 148, 140) },
 }
 local function push_cols(list)
     local n = 0
@@ -579,7 +598,13 @@ local function push_cols(list)
     return n
 end
 local function pop_cols(n) if n > 0 then pcall(real_imgui.PopStyleColor, n) end end
-local WIN_VARS = { { 'ImGuiStyleVar_FrameBorderSize', 1 }, { 'ImGuiStyleVar_TabRounding', 4 }, { 'ImGuiStyleVar_FramePadding', { 7, 4 } } }
+local WIN_VARS = {
+    { 'ImGuiStyleVar_WindowRounding', 6 }, { 'ImGuiStyleVar_ChildRounding', 4 }, { 'ImGuiStyleVar_PopupRounding', 4 },
+    { 'ImGuiStyleVar_FrameRounding', 3 }, { 'ImGuiStyleVar_GrabRounding', 2 }, { 'ImGuiStyleVar_ScrollbarRounding', 4 },
+    { 'ImGuiStyleVar_TabRounding', 4 }, { 'ImGuiStyleVar_FrameBorderSize', 1 }, { 'ImGuiStyleVar_WindowBorderSize', 1 },
+    { 'ImGuiStyleVar_FramePadding', { 8, 4 } }, { 'ImGuiStyleVar_ItemSpacing', { 8, 6 } }, { 'ImGuiStyleVar_WindowPadding', { 10, 10 } },
+    { 'ImGuiStyleVar_GrabMinSize', 10 },
+}
 local function push_vars()
     local n = 0
     for _, v in ipairs(WIN_VARS) do
@@ -587,6 +612,91 @@ local function push_vars()
         if type(k) == 'number' and pcall(real_imgui.PushStyleVar, k, v[2]) then n = n + 1 end
     end
     return n
+end
+
+--[[
+* 1.0.1: buttons and tick boxes styled by what they do, in every module's settings (RecastXI too). While the window
+* draws, the imgui module's Button / SmallButton / ArrowButton / Checkbox / BeginCombo are wrapped (and put back right
+* after End, also after an error): red = takes something away, grey = moves or refreshes, gold = jumps to a key
+* setting, a ticked box is filled blue, a combo's arrow sits in the field's color. Buttons that set their own colors
+* (Enabled / Test, Edit positions, the sidebar) are left alone. Radio buttons keep ImGui's own look.
+--]]
+local BTN_KIND = {
+    red  = { rgb(122, 46, 51), rgb(150, 58, 64), rgb(100, 36, 40) },
+    grey = { rgb(57, 64, 79), rgb(74, 83, 102), rgb(46, 52, 64) },
+    gold = { rgb(107, 81, 21), rgb(134, 102, 28), rgb(90, 68, 16), rgb(255, 224, 138) },
+}
+local RED_WORDS = { 'remove', 'unpin', 'reset', 'delete', 'clear', 'click again', 'forget' }
+local GREY_EXACT = {}
+for _, w in ipairs({ 'up', 'top', 'down', 'bottom', 'show all', 'hide all', 'refresh', 'refresh list', 'rescan', 'backward', 'forward',
+    'expand all', 'collapse all', 'dn', '<', '>', '-', '+', '^', 'v', '<<', '>>', 'move up', 'move down', 'first', 'last' }) do GREY_EXACT[w] = true end
+local function button_kind(label)
+    if OWN_COLORS or type(label) ~= 'string' then return nil end
+    if label:find('##hpp_key_', 1, true) then return 'gold' end
+    if label:find('##hpp_mod_', 1, true) then return nil end
+    local vis = label:gsub('##.*$', ''):gsub('^%s+', ''):gsub('%s+$', ''):lower()
+    if vis == '' then return nil end
+    if GREY_EXACT[vis] or vis:match('^[%^v<>%-%+]+$') or vis:find('\226\150\178', 1, true) or vis:find('\226\150\188', 1, true) then return 'grey' end
+    if vis:sub(1, 6) == 'rescan' or vis:sub(1, 7) == 'refresh' then return 'grey' end
+    for _, w in ipairs(RED_WORDS) do if vis:sub(1, #w) == w then return 'red' end end
+    return nil
+end
+local function push_kind(kind)
+    local set = BTN_KIND[kind]
+    local list = { { 'ImGuiCol_Button', set[1] }, { 'ImGuiCol_ButtonHovered', set[2] }, { 'ImGuiCol_ButtonActive', set[3] } }
+    if set[4] then list[4] = { 'ImGuiCol_Text', set[4] } end
+    return push_cols(list)
+end
+local CHECK_ON = { { 'ImGuiCol_FrameBg', rgb(56, 120, 217) }, { 'ImGuiCol_FrameBgHovered', rgb(76, 140, 235) },
+    { 'ImGuiCol_FrameBgActive', rgb(46, 100, 190) }, { 'ImGuiCol_Border', rgb(56, 120, 217) } }
+local CHECK_OFF = { { 'ImGuiCol_FrameBg', rgb(42, 53, 80) }, { 'ImGuiCol_Border', rgb(68, 80, 122) } }
+local COMBO_ARROW = { { 'ImGuiCol_Button', rgb(35, 42, 58) }, { 'ImGuiCol_ButtonHovered', rgb(45, 55, 76) }, { 'ImGuiCol_ButtonActive', rgb(52, 64, 90) } }
+local WRAP_ORIG = nil
+local function finish(n, ok, ...)
+    pop_cols(n or 0)
+    if not ok then error((...), 0) end
+    return ...
+end
+local function wrap(orig, before)
+    return function (...)
+        local n = before(...)
+        return finish(n, pcall(orig, ...))
+    end
+end
+local function style_install()
+    if WRAP_ORIG ~= nil then return end
+    local im = real_imgui
+    local orig = {}
+    for _, k in ipairs({ 'Button', 'SmallButton', 'ArrowButton', 'Checkbox', 'BeginCombo' }) do orig[k] = rawget(im, k) or im[k] end
+    if type(orig.Button) ~= 'function' then return end
+    local raw = {}
+    for k in pairs(orig) do raw[k] = rawget(im, k) end
+    local btn = function (label) local kd = button_kind(label); return kd and push_kind(kd) or 0 end
+    local ok = pcall(function ()
+        im.Button = wrap(orig.Button, btn)
+        if type(orig.SmallButton) == 'function' then im.SmallButton = wrap(orig.SmallButton, btn) end
+        if type(orig.ArrowButton) == 'function' then im.ArrowButton = wrap(orig.ArrowButton, function () return OWN_COLORS and 0 or push_kind('grey') end) end
+        if type(orig.Checkbox) == 'function' then
+            im.Checkbox = wrap(orig.Checkbox, function (_, v) return push_cols((type(v) == 'table' and v[1] == true) and CHECK_ON or CHECK_OFF) end)
+        end
+        if type(orig.BeginCombo) == 'function' then im.BeginCombo = wrap(orig.BeginCombo, function () return push_cols(COMBO_ARROW) end) end
+    end)
+    WRAP_ORIG = raw
+    if not ok then M.style_remove() end
+end
+function M.style_remove()
+    if WRAP_ORIG == nil then return end
+    local im = real_imgui
+    for k, f in pairs({ Button = 1, SmallButton = 1, ArrowButton = 1, Checkbox = 1, BeginCombo = 1 }) do pcall(function () im[k] = WRAP_ORIG[k] end) end
+    WRAP_ORIG = nil
+end
+local INTER = nil                 -- the Inter font for this window (false = not available)
+local function ui_font()
+    if INTER == nil then
+        local ok, f = pcall(Fonts.fetch, 'Inter', false, false)
+        INTER = (ok and f) or false
+    end
+    return INTER or nil
 end
 M.push_cols, M.pop_cols, M.SUB_COLS = push_cols, pop_cols, SUB_COLS
 -- a sub-tab's button in the teal sub-tab colors (its contents keep the window's colors)
@@ -1240,9 +1350,12 @@ local function describe(m)
     local imgui = real_imgui
     local okp, x0, y0 = pcall(imgui.GetCursorScreenPos)
     if okp and type(x0) == 'table' then x0, y0 = x0.x or x0[1], x0.y or x0[2] end
+    -- 1.0.1: a filled box (drawn behind the text through a second draw channel when this ImGui has them)
+    local dl0 = imgui.GetWindowDrawList()
+    local split = dl0 ~= nil and pcall(function () dl0:ChannelsSplit(2); dl0:ChannelsSetCurrent(1) end)
     imgui.Dummy({ 0, 4 })
     imgui.Indent(10)
-    imgui.TextColored({ 0.55, 0.78, 1, 1 }, m.name)
+    imgui.TextColored({ 1, 1, 1, 1 }, m.name)
     -- 2.13.0: ON / OFF next to the name, and what being off means
     local st = M.mod_on(m.id)
     if st ~= nil then
@@ -1267,12 +1380,14 @@ local function describe(m)
     if oke and type(x1) == 'table' then x1, y1 = x1.x or x1[1], x1.y or x1[2] end
     local okw, ww = pcall(imgui.GetContentRegionAvail)
     if okw and type(ww) == 'table' then ww = ww.x or ww[1] end
+    if split then pcall(function () dl0:ChannelsSetCurrent(0) end) end
     if okp and oke and tonumber(x0) and tonumber(y0) and tonumber(y1) then
         local dl = imgui.GetWindowDrawList()
         local x2 = x0 + math.max(100, tonumber(ww) or 300)
-        dl:AddRect({ x0, y0 }, { x2, y1 - 2 }, Draw.u32({ 0.40, 0.60, 0.90, 0.55 }), 4)
-        dl:AddRectFilled({ x0, y0 }, { x0 + 3, y1 - 2 }, Draw.u32({ 0.40, 0.65, 1, 0.9 }), 0)
+        if split then dl:AddRectFilled({ x0, y0 }, { x2, y1 - 2 }, Draw.u32({ 26 / 255, 32 / 255, 48 / 255, 1 }), 4) end
+        dl:AddRect({ x0, y0 }, { x2, y1 - 2 }, Draw.u32({ 44 / 255, 53 / 255, 80 / 255, 1 }), 4)
     end
+    if split then pcall(function () dl0:ChannelsMerge() end) end
     imgui.TextDisabled('Point at a setting to frame what it changes on screen. Gold = a key setting.')
     imgui.Dummy({ 0, 4 })
 end
@@ -1293,10 +1408,12 @@ function M.draw_body()
 
     local failed
     -- every child is closed again even if its body fails, so ImGui's stacks stay balanced
+    local nsb = push_cols({ { 'ImGuiCol_ChildBg', rgb(21, 25, 35) } })     -- 1.0.1: the sidebar's own darker panel
     local okc, e = pcall(begin_child, '##hpp_side', { SIDE_W, 0 })
-    if not okc then error(e, 0) end
+    if not okc then pop_cols(nsb); error(e, 0) end
     local ok1, e1 = pcall(sidebar, q)
     imgui.EndChild()
+    pop_cols(nsb)
     if not ok1 then failed = e1 end
     q = (SEARCH[1] or ''):gsub('^%s+', ''):gsub('%s+$', '')
     imgui.SameLine()
@@ -1564,7 +1681,12 @@ function M.draw(h)
     if not (on_title or (down and M.title_drag)) and rawget(_G, 'ImGuiWindowFlags_NoMove') ~= nil then
         flags = bit.bor(flags, ImGuiWindowFlags_NoMove)
     end
-    local nwc, nwv = push_cols(WIN_COLS), push_vars()      -- 2.9.2: clearer tabs and buttons in this window
+    local font = ui_font()                                  -- 1.0.1: Inter, at the size ImGui uses now
+    local fsz = 0
+    if font ~= nil then local okf, fz = pcall(real_imgui.GetFontSize); fsz = (okf and tonumber(fz)) or 0 end
+    local fpushed = font ~= nil and fsz > 0 and Fonts.push(font, fsz)
+    local nwc, nwv = push_cols(WIN_COLS), push_vars()      -- 2.9.2 / 1.0.1: the window's palette and shapes
+    style_install()
     if imgui.Begin('PartyramaXI##partyramaxi_cfg', M.open, flags) then
         pcall(function ()
             local wx, wy = imgui.GetWindowPos()
@@ -1577,7 +1699,9 @@ function M.draw(h)
     end
     imgui.End()           -- always paired with Begin, even if the body failed
     FOLD = nil
+    M.style_remove()
     pop_cols(nwc); if nwv > 0 then pcall(real_imgui.PopStyleVar, nwv) end
+    if fpushed then Fonts.pop() end
     SEARCHING = false     -- a failed search must not leave the filter on for the next frame
     if not ok then
         M.open[1] = false

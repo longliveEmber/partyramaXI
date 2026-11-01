@@ -11,7 +11,7 @@ PartyramaXI replaces Final Fantasy XI's own party, alliance and target windows w
 
 Every part can be switched on or off, and everything is set up in game.
 
-Version 1.0.0 · GNU GPL v3 or later (see `LICENSE`) · free to use, change and share.
+Version 1.0.1 · GNU GPL v3 or later (see `LICENSE`) · free to use, change and share.
 
 PartyramaXI is built on **hideparty** by atom0s (Ashita Development Team), the addon that hides the game's party
 windows. Its window hiding lives on in the Hideparty module. See [Credits](#credits) for everyone whose work is used.

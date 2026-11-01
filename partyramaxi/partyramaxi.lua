@@ -31,7 +31,7 @@
 
 addon.name      = 'partyramaxi';
 addon.author    = 'Banedon (based on hideparty by atom0s)';
-addon.version   = '1.0.0';
+addon.version   = '1.0.1';
 addon.desc      = 'Party and alliance list, target bar, pointer and recast timers that replace the game\'s own windows.';
 addon.link      = 'https://ashitaxi.com/';
 
@@ -2231,6 +2231,7 @@ function hpp.frame()
         if over.enabled and not (hpp.ui_hidden or hpp.in_event) and (hpp.list_test or hpp.party_in_battle(now)) then guard('health bars over members', hpp.draw_over, now) end
         if preview then guard('preview', hpp.draw_preview, now) end
         Fonts.unwind()      -- a draw error must not leave a font pushed
+        if ui and ui.style_remove then pcall(ui.style_remove) end   -- 1.0.1: nor the settings window's widget styling
         PList.box_ok = false
         if hpp.s.list.enabled or preview or hpp.list_test then
             guard('party list', hpp.draw_list, now, hpp.list_test == true or (preview and PData.count_real() < 2), hpp.list_test_anim == true)
