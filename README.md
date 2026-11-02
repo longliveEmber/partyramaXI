@@ -52,8 +52,6 @@ Each member gets a card with their job icon, name, job and level, HP / MP / TP b
 
 ### Themes
 
-<p align="center"><img src="assets/themes.png" alt="Party list themes"></p>
-
 - **Drawn themes:** Aurora, Gilded, Frost, Ember, Sakura, Slate Corners, Midnight, Vana'diel Blue, Steel, Verdant, Crimson and Minimal.
 - **Picture-framed themes:** Classic Scanline, Vana'diel Gradient, Dusk, Smoke and Void, built from the frames in `backgrounds/`.
 - **Custom:** start from any theme and change anything: background color, gradient or picture, border, cards, bar colors and finish, fonts. The default look is Custom with the `Window1-bg.png` picture.
