@@ -18,7 +18,7 @@ PartyramaXI hides the game's party, alliance and target windows and draws its ow
 
 1. Click **Code > Download ZIP** on this page (or grab the latest release) and unzip it.
 2. Copy the `partyramaxi` folder from inside it into your Ashita addons folder, so you have `Ashita/addons/partyramaxi/partyramaxi.lua`.
-3. **Unload hideparty** if you use it, and the standalone **RecastXI** if you use that. PartyramaXI does both jobs.
+3. **Unload hideparty** if you use it.
 4. In game: `/addon load partyramaxi`
 5. To load it every time, add `/addon load partyramaxi` to `Ashita/scripts/default.txt`.
 6. Type `/pxi config` to open the settings. `/pxi test` shows samples of everything, so you can set it up anywhere.
