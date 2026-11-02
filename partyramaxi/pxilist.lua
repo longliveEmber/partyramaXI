@@ -737,9 +737,9 @@ local function buff_icons(dl, B, r, x, y, w, ar, up)
     local tsc = tonumber(B.timer_scale) or 0.6
     local th = math.floor(BASE * tsc + 0.5)
     local slide, flash = B.slide ~= false, B.flash ~= false
-    local own = r.slot == 0 and not BF.sample
+    local own = r.slot == 0 and not BF.sample and not r.ext     -- 1.0.3: the docked card's copy offers nothing to cancel
     local OWN, cur = Buffs.own, Buffs.cur
-    if r.slot == 0 then OWN.n = 0 end            -- the sample party (Test) never offers anything to cancel
+    if r.slot == 0 and not r.ext then OWN.n = 0 end            -- the sample party (Test) never offers anything to cancel
     for i = 1, maxn do
         local row, col = math.floor((i - 1) / per), (i - 1) % per
         local id = BORD[i]
@@ -792,7 +792,7 @@ local function buff_icons(dl, B, r, x, y, w, ar, up)
                 else Draw.sheen(dl, 'square', x0 + size / 2, y0 + size, 'down', size, p, fs, now) end   -- the solid tile
             end
         end
-        if not ghost then Buffs.place(r, id, x0, y0, size) end
+        if not ghost and not r.ext then Buffs.place(r, id, x0, y0, size) end
         if own and not ghost then
             OWN.n = OWN.n + 1; OWN[OWN.n] = id
             if cur.on and cur.i == OWN.n then
@@ -847,6 +847,7 @@ end
 -- so none reach past the box.
 local XR = { sid = 0, slot = -1, buffs = {}, nbuffs = 0 }
 local XL = {}
+local XM = setmetatable({}, { __mode = 'k' })   -- 1.0.3: list record -> its docked-card view (own motion, no cancel)
 local XB, XB_src = {}, nil          -- the list's settings with the card's own size, countdown and wrapping on top
 function M.buffs_ext(dl, B, sid, x, y, w, alpha, now, size, timers)
     if type(B) ~= 'table' or sid == nil or sid == 0 then return 0, 0 end
@@ -856,17 +857,33 @@ function M.buffs_ext(dl, B, sid, x, y, w, alpha, now, size, timers)
     rawset(XB, 'fit', true)
     rawset(XB, 'per_row', 99)
     B = XB
-    local n = Fx.active and Fx.active(sid, now, { show_unknown = true }, XL) or 0
-    XR.sid, XR.nbuffs = sid, 0
-    for i = 1, n do
-        local e = XL[i]
-        local id = e and (e.id or e.status)
-        if id ~= nil then XR.nbuffs = XR.nbuffs + 1; XR.buffs[XR.nbuffs] = id end
+    -- 1.0.3: a party / alliance member (or you) shows the list's own record: the game's effect list, which empties
+    -- when they die, and your own game timers. Anyone else: the effects the addon saw land.
+    local rec = nil
+    for i = 1, #Data.m do
+        local m = Data.m[i]
+        if m.active and m.sid == sid then rec = m; break end
     end
-    for i = XR.nbuffs + 1, #XR.buffs do XR.buffs[i] = nil end
+    local R
+    if rec ~= nil then
+        R = XM[rec]
+        if R == nil then R = setmetatable({ ext = true }, { __index = rec }); XM[rec] = R end
+        rawset(R, 'stkey', 'dock' .. tostring(sid))
+    else
+        local n = Fx.active and Fx.active(sid, now, { show_unknown = true }, XL) or 0
+        if XR.sid ~= sid then XR.stkey = 'dock' .. tostring(sid) end      -- its own icon motion (see Buffs.icon)
+        XR.sid, XR.nbuffs = sid, 0
+        for i = 1, n do
+            local e = XL[i]
+            local id = e and (e.id or e.status)
+            if id ~= nil then XR.nbuffs = XR.nbuffs + 1; XR.buffs[XR.nbuffs] = id end
+        end
+        for i = XR.nbuffs + 1, #XR.buffs do XR.buffs[i] = nil end
+        R = XR
+    end
     local ga, cn = GA, CURNOW
     GA, CURNOW = alpha or 1, now
-    local ok, cnt, per, pxs, pys = pcall(buff_icons, dl, B, XR, x, y, w, false, false)
+    local ok, cnt, per, pxs, pys = pcall(buff_icons, dl, B, R, x, y, w, false, false)
     GA, CURNOW = ga, cn
     if not ok then error(cnt, 0) end
     if (cnt or 0) == 0 then return 0, 0 end

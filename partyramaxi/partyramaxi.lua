@@ -31,7 +31,7 @@
 
 addon.name      = 'partyramaxi';
 addon.author    = 'Banedon (based on hideparty by atom0s)';
-addon.version   = '1.0.2';
+addon.version   = '1.0.3';
 addon.desc      = 'Party and alliance list, target bar, pointer and recast timers that replace the game\'s own windows.';
 addon.link      = 'https://ashitaxi.com/';
 
@@ -1174,6 +1174,32 @@ local function dock_slide(want, now)
     S.cur = S.from + (S.to - S.from) * u
     return S.cur
 end
+-- 1.0.3: the sub-target's card moves off the main target's card when they would overlap (plus info.apart px between
+-- them): up when it sits above the main card's middle, else down, easing there and back. SEP.main = the main card's
+-- box this frame (or nil); SUBB = the sub card's box, kept relative to its anchor (last frame).
+local SUBB = { x0 = 0, y0 = 0, x1 = 0, y1 = 0, n = 0, gx = 0, gy = 0, on = false, ok = false, rx0 = 0, ry0 = 0, rx1 = 0, ry1 = 0 }
+local SEP = { main = nil, cur = 0, t = nil, idx = 0 }
+local MAIN_IB = Draw.IB
+hpp.sep, hpp.subb = SEP, SUBB
+local function sub_apart(I, idx, now)
+    local dt = math.min(0.1, now - (SEP.t or now)); SEP.t = now
+    if SEP.idx ~= idx then SEP.idx, SUBB.ok = idx, false end
+    local want = 0
+    local M_ = SEP.main
+    if M_ ~= nil and SUBB.ok then
+        local m = math.max(0, tonumber(I.apart) or 10)
+        local x0, y0 = hpp.pos.x + SUBB.rx0, hpp.pos.y + SUBB.ry0
+        local x1, y1 = hpp.pos.x + SUBB.rx1, hpp.pos.y + SUBB.ry1
+        if x0 < M_.x1 + m and x1 > M_.x0 - m and y0 < M_.y1 + m and y1 > M_.y0 - m then
+            if (y0 + y1) / 2 < (M_.y0 + M_.y1) / 2 then want = (M_.y0 - m) - y1 else want = (M_.y1 + m) - y0 end
+        end
+    end
+    local k = 1 - math.exp(-dt * 14)
+    SEP.cur = SEP.cur + (want - SEP.cur) * k
+    if math.abs(want - SEP.cur) < 0.3 then SEP.cur = want end
+    hpp.pos.y = hpp.pos.y + SEP.cur
+end
+
 -- mode (2.12.7): nil = over the target, docked when off the screen (or pinned); 'dock' = only the docked card;
 -- 'float' = only over the target (the pinned card's "keep the bar over the target too" pass)
 local function draw_target(e, I, dl, idx, which, as_main, now, mode)
@@ -1197,6 +1223,7 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
         if mode == 'float' or not (as_main and I.dock ~= false) then return end
         dock_place(hpp.pos); docked = true
     end
+    if which == 'sub' and not K.abs then sub_apart(I, idx, now) end
     if as_main and mode ~= 'float' then
         -- fades in at its new place each time it docks or undocks (and for a new target)
         if DOCK.was ~= docked or (docked and DOCK.idx ~= idx) then DOCK.t0 = now end
@@ -1278,6 +1305,12 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     info_d.px, info_d.py = hpp.pos.x, hpp.pos.y
     local IB = Draw.IB
     if as_main then IB.on, IB.n, IB.gx, IB.gy = true, 0, mx, my end      -- 2.9.5: its box, for the glide clamp
+    local main_ib = nil
+    if which == 'sub' and not as_main then      -- 1.0.3: the sub card's own box (for keeping it off the main card)
+        main_ib = IB
+        IB = SUBB; IB.on, IB.n, IB.gx, IB.gy = true, 0, 0, 0
+        Draw.IB = IB
+    end
     if docked then
         local B, a = DOCK.box, info_d.a_name
         pcall(PList.panel, dl, B[1], B[2], B[3], B[4], math.max(info_d.a_bar or 0, a or 0))
@@ -1289,6 +1322,8 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
         -- 1.0.2: they wrap at the panel's inner width (from its left edge), so every icon stays inside the card, at the
         -- card's own icon size and countdown switch
         local sid = e:GetServerId(idx) or 0
+        -- 1.0.3: a target that died has lost its effects (the ones the addon saw land are dropped too)
+        if (info_d.hp or 0) <= 0 and sid ~= 0 then Fx.fx[sid] = nil; sid = 0 end
         local B, p = DOCK.box, DOCK.pad
         local x0, iw = B[1] + p, math.max(1, (B[3] - B[1]) - 2 * p)
         local y0 = (IB.n > 0 and IB.y1 or hpp.pos.y) + 4
@@ -1302,6 +1337,14 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
         elseif not ok and not hpp.dock_fx_err then hpp.dock_fx_err = true; err('Effects on the docked card are off after an error: ' .. tostring(fw)) end
     end
     IB.on = false
+    if main_ib ~= nil then
+        Draw.IB = main_ib
+        SUBB.ok = SUBB.n > 0
+        if SUBB.ok then
+            SUBB.rx0, SUBB.ry0 = SUBB.x0 - hpp.pos.x, SUBB.y0 - hpp.pos.y
+            SUBB.rx1, SUBB.ry1 = SUBB.x1 - hpp.pos.x, SUBB.y1 - hpp.pos.y
+        end
+    end
     if docked and IB.n > 0 then              -- 2.12.0: the docked card's box around its anchor, for its panel
         DOCK.rx0, DOCK.ry0 = IB.x0 - IB.gx - hpp.pos.x, IB.y0 - IB.gy - hpp.pos.y
         DOCK.rx1, DOCK.ry1 = IB.x1 - IB.gx - hpp.pos.x, IB.y1 - IB.gy - hpp.pos.y
@@ -1330,6 +1373,7 @@ function hpp.draw_info(now)
     -- 2.9.5: the glide never pushes the info off the screen: last frame's box (less the glide it was drawn with) is
     -- kept inside the margin (2.10.0: 7.5% of the screen) and moved off the addon's windows and pointer arrows. The
     -- correction grows with the glide, so it eases in and out with it.
+    Draw.IB = MAIN_IB                          -- 1.0.3: (the sub card borrows it only while it draws)
     local IB = Draw.IB
     local W, H = hpp.disp_w, hpp.disp_h
     local adt = math.min(0.1, now - (AV.t or now)); AV.t = now
@@ -1392,6 +1436,8 @@ function hpp.draw_info(now)
     -- the remembered enemy only while you target someone (an ally); not after Esc
     elseif main ~= 0 and hpp.focus ~= 0 and hpp.focus ~= sub then draw_main(hpp.focus, 'focus') end
     -- The sub-target cursor shows the info as long as it is over a monster, but never fades or glides.
+    -- 1.0.3: it keeps off the main card drawn above (Draw.IB holds that card's box now)
+    SEP.main = (Draw.IB.n > 0) and Draw.IB or nil
     if I.show_sub and sub ~= 0 and sub ~= main and hpp.shows_info(sub) then draw_target(e, I, dl, sub, 'sub', false, now) end
     local g = hpp.ghost
     if g ~= 0 then

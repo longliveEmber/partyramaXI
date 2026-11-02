@@ -49,6 +49,7 @@ local D = T{
     info = T{
         enabled   = true,
         show_sub  = true,           -- also for the monster the sub-target cursor is on
+        apart     = 10,             -- 1.0.3: px kept between the sub-target's card and the main target's (it moves off)
         npc_color = T{ 0.55, 0.75, 1.00, 1.00 },
         -- 2.9.0: what each kind of target gets (Enemies / Players / NPCs tabs). abs = drawn at a fixed spot on the
         -- screen (ax, ay = where the pointer tip would be) instead of over the target. Players' and NPCs' elements have

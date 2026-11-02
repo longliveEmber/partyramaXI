@@ -11,7 +11,7 @@ PartyramaXI replaces Final Fantasy XI's own party, alliance and target windows w
 
 Every part can be switched on or off, and everything is set up in game.
 
-Version 1.0.2 · GNU GPL v3 or later (see `LICENSE`) · free to use, change and share.
+Version 1.0.3 · GNU GPL v3 or later (see `LICENSE`) · free to use, change and share.
 
 PartyramaXI is built on **hideparty** by atom0s (Ashita Development Team), the addon that hides the game's party
 windows. Its window hiding lives on in the Hideparty module. See [Credits](#credits) for everyone whose work is used.
@@ -119,6 +119,8 @@ Information next to your target. Enemies, players and NPCs each have their own t
 - **Monster info badges:** notorious monster, aggressive, links, how it detects you, and more.
 - **Players:** linkshell color and name labels such as LFP, AWAY, ANON or Bazaar.
 - **Battle:** the bar can glide aside and fade parts out while you fight.
+- **Sub-target:** its card slides up or down off your target's card instead of overlapping it (Space between target
+  cards, Target bar > General).
 - **Docked card:** when your target is off screen, a card sits above the party list. With **Effects like the party
   list** on (Target bar > General > Docked card), the effects on it show under the card, drawn like the party list's
   status icons (same countdown look, sort and pins). They wrap into more rows so every icon stays inside the card,

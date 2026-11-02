@@ -105,6 +105,7 @@ The target bar sits next to your target. Enemies, players and NPCs each have the
 - **Monster info badges:** notorious monster, aggressive, links, how it detects you (sight, sound, scent, magic, low HP, true sight) and more. With MobDB installed, hover over them for the whole card: family, job, respawn, drops, steal and spells.
 - **Players:** the linkshell pearl in its color, and labels such as LFP, ANON, AWAY, BAZ, MNT, NEW and GM.
 - **In battle** the bar can glide aside and fade parts out, so it doesn't sit on the fight.
+- **Sub-target:** while you pick a sub-target, its card slides up or down off your target's card instead of overlapping it, with a gap you set.
 - Icon styles for elements and badges: jewel, flat, painted, glyph, high contrast and glass, or a folder of your own.
 
 ### Docking and pinning the target

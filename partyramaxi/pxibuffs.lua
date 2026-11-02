@@ -156,9 +156,12 @@ end
 -- Per-icon motion: ST[server id][status id] = { x, y (position relative to the row), a (fade in), seen, nxt / f0 (flash) }
 ---------------------------------------------------------------------------
 local ST, sweep_at = {}, 0
+-- 1.0.2: r.stkey (when set) keeps a second row of the same character apart: the docked target card shows a party
+-- member's effects at its own size and wrap, and sharing their motion made both rows slide back and forth.
 function M.icon(r, id, rx, ry, now, dt, slide)
-    local per = ST[r.sid]
-    if per == nil then per = {}; ST[r.sid] = per end
+    local key = r.stkey or r.sid
+    local per = ST[key]
+    if per == nil then per = {}; ST[key] = per end
     local s = per[id]
     if s == nil or now - s.seen > 1 then
         s = { x = rx, y = ry, a = 0, seen = now, nxt = nil, f0 = -10 }; per[id] = s     -- a new (or returning) effect
@@ -190,7 +193,7 @@ end
 local CUR, GH, GHN = {}, {}, 0
 local function by_idx(p, q) return p.idx < q.idx end
 function M.with_gone(r, order, n, now, B)
-    local per = ST[r.sid]
+    local per = ST[r.stkey or r.sid]
     if per == nil then return n end
     for k in pairs(CUR) do CUR[k] = nil end
     for i = 1, n do CUR[order[i]] = true end

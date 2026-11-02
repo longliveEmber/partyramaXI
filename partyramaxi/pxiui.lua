@@ -776,6 +776,9 @@ local function info_general(I)
         imgui.SameLine(); checkbox('Other players##info_k_pc', K.pc, 'enabled', 'Player characters other than you. Same switch as the Enabled button in the Players tab, where its settings are.')
         imgui.SameLine(); checkbox('NPCs##info_k_npc', K.npc, 'enabled', 'Anything else you can target: NPCs, doors, ??? points, trusts... Same switch as the Enabled button in the NPCs tab, where its settings are.')
         checkbox('Also for the sub-target cursor##info_sub', I, 'show_sub')
+        when(I.show_sub ~= false, function ()
+            slider_int('Space between target cards##info_apart', I, 'apart', 0, 100, '%d px', 'When the sub-target\'s card would overlap your target\'s card, it moves up or down out of the way, keeping this much space between them.')
+        end)
         -- 2.13.0: one switch for every kind; each kind's tab keeps its own for exceptions
         local all = K.mob.hide_events ~= false and K.pc.hide_events ~= false and K.npc.hide_events ~= false
         HEV.v = all
