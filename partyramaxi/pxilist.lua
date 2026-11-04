@@ -849,14 +849,30 @@ local XR = { sid = 0, slot = -1, buffs = {}, nbuffs = 0 }
 local XL = {}
 local XM = setmetatable({}, { __mode = 'k' })   -- 1.0.3: list record -> its docked-card view (own motion, no cancel)
 local XB, XB_src = {}, nil          -- the list's settings with the card's own size, countdown and wrapping on top
-function M.buffs_ext(dl, B, sid, x, y, w, alpha, now, size, timers)
+-- 1.0.5: same = true: the party list's own settings as they are (size, countdown, rows) and its place: fitted, under
+-- the card (x, y, wrapped at w); else at its offsets from there, facing the card like the list's (cy0 = the card's
+-- top). Returns the size and whether the icons sit off the card (the card does not grow for them).
+function M.buffs_ext(dl, B, sid, x, y, w, alpha, now, size, timers, same, cy0)
     if type(B) ~= 'table' or sid == nil or sid == 0 then return 0, 0 end
-    if XB_src ~= B then XB = setmetatable({}, { __index = B }); XB_src = B end
-    rawset(XB, 'size', math.max(8, math.floor(tonumber(size) or tonumber(B.size) or 16)))
-    rawset(XB, 'timers', timers == nil and B.timers or (timers and true or false))
-    rawset(XB, 'fit', true)
-    rawset(XB, 'per_row', 99)
-    B = XB
+    local ar, up, off = false, false, false
+    if same then
+        if B.fit ~= true then
+            local cx0 = x
+            x, y = x + (tonumber(B.dx) or 0), y + (tonumber(B.dy) or 0)
+            local _, _, _, _, pys = buff_geom(B)
+            local gap = tonumber(B.gap) or 1
+            ar = x + w / 2 < cx0 and x + w <= cx0 + 1
+            up = y + pys - gap <= (cy0 or y) + 1
+            off = true
+        end
+    else
+        if XB_src ~= B then XB = setmetatable({}, { __index = B }); XB_src = B end
+        rawset(XB, 'size', math.max(8, math.floor(tonumber(size) or tonumber(B.size) or 16)))
+        rawset(XB, 'timers', timers == nil and B.timers or (timers and true or false))
+        rawset(XB, 'fit', true)
+        rawset(XB, 'per_row', 99)
+        B = XB
+    end
     -- 1.0.3: a party / alliance member (or you) shows the list's own record: the game's effect list, which empties
     -- when they die, and your own game timers. Anyone else: the effects the addon saw land.
     local rec = nil
@@ -883,12 +899,12 @@ function M.buffs_ext(dl, B, sid, x, y, w, alpha, now, size, timers)
     end
     local ga, cn = GA, CURNOW
     GA, CURNOW = alpha or 1, now
-    local ok, cnt, per, pxs, pys = pcall(buff_icons, dl, B, R, x, y, w, false, false)
+    local ok, cnt, per, pxs, pys = pcall(buff_icons, dl, B, R, x, y, w, ar, up)
     GA, CURNOW = ga, cn
     if not ok then error(cnt, 0) end
-    if (cnt or 0) == 0 then return 0, 0 end
+    if (cnt or 0) == 0 then return 0, 0, off end
     local rows = math.ceil(cnt / per)
-    return math.min(cnt, per) * pxs, rows * pys
+    return math.min(cnt, per) * pxs, rows * pys, off
 end
 
 ---------------------------------------------------------------------------

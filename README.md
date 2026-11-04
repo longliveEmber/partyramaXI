@@ -38,7 +38,7 @@ The first load starts from ready-made settings, made on a 3840 x 2160 screen and
 | **Overhead bars** | Health bars over your party's heads in battle, sized by distance, with a mark on whoever the enemy is after |
 | **Target bar** | Enemies, players and NPCs each with their own settings: level, /check, evasion and defense, effect rings |
 | **Weaknesses and monster info** | Elements, damage types and status effects from MobDB (if installed) or built-in LandSandBoat data, plus NM, aggro, link and detection badges |
-| **Docked card** | When your target leaves the screen, it docks above the party list. Pin it there if you like it there all the time |
+| **Docked card** | When your target leaves the screen, it docks above the party list, with its own parts and places. Can list every enemy fighting your party, click one to target it |
 | **RecastXI** | Spell and ability recasts in five themes, with Pinned Abilities, a Ready flash, Not enough MP and SP1 / SP2 badges |
 | **Pointer** | Your own arrow over the target and sub-target: a hand, a dagger, drawn shapes or any picture |
 | **Hideparty** | Hides the game's party, alliance, target and cast info windows, each on its own |
@@ -96,25 +96,30 @@ In battle, each party member on screen gets a small health bar over their head.
 The target bar sits next to your target. Enemies, players and NPCs each have their own tab, so an NPC can show just a name while a monster shows everything.
 
 - **Name, health and distance**, for every kind of target.
-- **Level and /check:** the target is checked for you, and the replies are kept out of your chat log. The result reads as short (EP, DC, T...), spelled out, or both. Notorious monsters and battlefield enemies that can't be gauged show `??`.
+- **Level and /check:** the target, and a monster under the sub-target cursor, is checked for you, and the replies are kept out of your chat log. The result fades in a moment after you pick the target. The result reads as short (EP, DC, T...), spelled out, or both. Notorious monsters and battlefield enemies that can't be gauged show `??`.
 - **Evasion and defense** from the check, as up and down marks.
 - **Effect icons** on the target, with countdown rings or bars.
 - **Weaknesses and resistances:** elements, damage types and status effects. A green mark pointing down means it takes more, a red mark pointing up means it resists. With the **MobDB** addon installed its numbers are used; otherwise the LandSandBoat data built into PartyramaXI is used. Marks can also show as percentages.
 - **Monster info badges:** notorious monster, aggressive, links, how it detects you (sight, sound, scent, magic, low HP, true sight) and more. With MobDB installed, hover over them for the whole card: family, job, respawn, drops, steal and spells.
-- **Players:** the linkshell pearl in its color, and labels such as LFP, ANON, AWAY, BAZ, MNT, NEW and GM.
+- **Players:** left of the name, the game's name icons (seeking a party, level sync, /anon, /away, bazaar, mentor, new adventurer, link dead, GM) and a pearl in their linkshell color.
 - **In battle** the bar can glide aside and fade parts out, so it doesn't sit on the fight.
 - **Sub-target:** while you pick a sub-target, its card slides up or down off your target's card instead of overlapping it, with a gap you set.
 - Icon styles for elements and badges: jewel, flat, painted, glyph, high contrast and glass, or a folder of your own.
 
-### Docking and pinning the target
+### Floating, pinned and docked
 
 <p align="center"><img src="assets/docking.png" alt="Docked target card above the party list"></p>
 
-1. **On screen**, the bar floats over the target as usual.
-2. **Off screen**, the target docks as a card above the party list, as wide as the list and in its frame. It fades in, and RecastXI slides up only if the gap can't fit the card. By default the card keeps to name, health and distance; untick that to see everything the bar shows.
-3. **Pin it there for the current target** keeps your target docked even when it's on screen. **Keep the bar over the target too** shows both.
+**Target bar > General** has a group for each place the bar can be:
 
-With **Effects like the party list** on, the effects on the docked target are drawn like the party list's status icons, with the same countdown look, sort and pins. They wrap into more rows so every icon stays inside the card, and the card has its own **Card icon size** and **Countdown on the card icons** switch. These live in **Target bar > General > Docked card**.
+1. **Floating:** the bar sits over the target and follows it, with an optional glide aside in battle.
+2. **Pinned:** a kind of target (enemies, players or NPCs) gets a spot on the screen you drag it to, instead of floating.
+3. **Docked:** as soon as your target leaves the screen, it docks as a card above the party list, as wide as the list and in its frame. It fades in, and RecastXI slides up only if the gap can't fit the card. **Always dock the current target** keeps it there even when it's on screen, and **Keep the floating bar too** shows both.
+
+The docked card holds still whatever the target is. Each part (name, name icons, health bar, health %, distance, level, check, evasion and defense, weaknesses, monster info, effects) has its own switch, position and justify, separate from the bar over the target.
+
+- **Effects:** drawn like the party list's status icons, with the same countdown look, sort and pins. Either they stay inside the card, wrapping into more rows at their own size and countdown, or **Same settings as party members** places them exactly like the party list's.
+- **Hate list:** every monster fighting your party (claimed, fought, targeting or hitting a member) gets a row with its name, distance and health. Click a row to target it. Your current target is on the card above, so it leaves the list until you target something else.
 
 ---
 

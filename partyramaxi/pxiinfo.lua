@@ -191,8 +191,12 @@ local WHITE, BLACK = { 1, 1, 1, 1 }, { 0, 0, 0, 1 }
 local COL = { 0, 0, 0, 1 }
 local GX, GY = 0, 0               -- battle glide: the shared in-battle offset (already eased), added to every element
 local OFF = nil                   -- 2.9.0: players' / NPCs' own offsets { name = { dx, dy }, bar, dist } (nil: the elements' own)
+                                  -- 1.0.5: the docked card's (info.dock_pos) also has level, check, defev, weak, mob
 local function ox(k, el) local o = OFF and OFF[k] or el; return tonumber(o.dx) or 0 end
 local function oy(k, el) local o = OFF and OFF[k] or el; return tonumber(o.dy) or 0 end
+-- 1.0.6: the docked card's own justify per text part (left / center / right); def = the part's usual one
+local ALIGN_OK = { left = true, center = true, right = true }
+local function oal(k, def) local o = OFF and OFF[k]; local a = o and o.align; return ALIGN_OK[a] and a or def end
 local AL = 1                      -- opacity of the element being drawn (battle fade)
 local TOP, BOTTOM = 48, 192          -- ImDrawFlags_RoundCornersTop / Bottom
 
@@ -375,40 +379,67 @@ end
 
 M.text_at, M.ST, M.text_size = text_at, ST, tsize
 
--- 2.13.4: a player's name icons in a row centred over the name (bottom at by): the linkshell pearl, then short
--- labels on colored pills (LFP, AWAY, ANON, BAZ...). d.badges / badge_n / badge_px: see PartyramaXI.name_badges.
+-- 2.13.4: a player's name icons. 1.0.4: the game's name icons, then the linkshell pearl nearest the name, in a row to
+-- the LEFT of the name (the name stays centred), gap px before it, each centred on the name's height; the icons are
+-- 50% larger than the pearl (badge_px); each is its picture from
+-- icons\badges\ (M.png_badge), or a short label on a colored pill when the picture is missing.
+-- d.badges / badge_n / badge_px / badge_gap: see PartyramaXI.name_badges.
 local BADGE_TXT = { 1, 1, 1, 1 }
-function M.draw_badges(dl, cx, by, d, push)
-    local hpx = math.max(8, tonumber(d.badge_px) or 16)
+local BQ = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }
+local function badge_pic(b)
+    local P = M.png_badge
+    if b.f == nil or P == nil then return nil end
+    local ok, has = pcall(P.has, P, b.f)
+    if not ok or not has then return nil end
+    local t = P:get(b.f)
+    return t and t.id or nil
+end
+function M.draw_badges(dl, nx0, ny0, ny1, d, push)
+    local hpx = math.max(8, tonumber(d.badge_px) or 16)         -- the pearl
+    local big = math.floor(hpx * 1.5 + 0.5)                       -- 1.0.4: the other icons, 50% larger
     local fs = tonumber(imgui.GetFontSize and imgui.GetFontSize()) or 14
-    local pushed = push and push(hpx * 0.62 / math.max(1, fs)) or false
-    local gap, pad, total = math.max(2, hpx * 0.2), hpx * 0.3, 0
-    local W = d.badge_w
+    local pushed = push and push(big * 0.5 / math.max(1, fs)) or false
+    local gap, pad, total = math.max(2, hpx * 0.2), big * 0.25, 0
+    local W, ID = d.badge_w, d.badge_id
     if W == nil then W = {}; d.badge_w = W end
+    if ID == nil then ID = {}; d.badge_id = ID end
     for i = 1, d.badge_n do
         local b = d.badges[i]
-        W[i] = b.t and (tsize(b.t) + 2 * pad) or hpx
+        ID[i] = b.t and badge_pic(b) or false
+        W[i] = (b.t == nil) and hpx or (ID[i] and big or (tsize(b.t) + 2 * pad))
         total = total + W[i] + (i > 1 and gap or 0)
     end
-    local x, y0, y1 = cx - total / 2, by - hpx, by
+    local x1 = nx0 - math.max(0, tonumber(d.badge_gap) or 6)
+    local x = x1 - total
+    local cy = (ny0 + ny1) / 2
+    local top, bot = cy, cy
     for i = 1, d.badge_n do
         local b = d.badges[i]
         local w = W[i]
+        local h = (b.t == nil) and hpx or big
+        local y0 = math.floor(cy - h / 2 + 0.5)
+        local y1 = y0 + h
+        if y0 < top then top = y0 end
+        if y1 > bot then bot = y1 end
         if b.t == nil then                                   -- linkshell pearl: its color, a rim and a highlight
             local r = hpx / 2
             dl:AddCircleFilled({ x + r, y0 + r }, r, rgba(b.c, 1), 20)
             dl:AddCircle({ x + r, y0 + r }, r, black(0.7), 20, 1.2)
             dl:AddCircleFilled({ x + r * 0.7, y0 + r * 0.65 }, r * 0.28, rgba(BADGE_TXT, 0.75), 10)
+        elseif ID[i] then
+            BQ[1][1], BQ[1][2], BQ[2][1], BQ[2][2], BQ[3][1], BQ[3][2], BQ[4][1], BQ[4][2] = x, y0, x + w, y0, x + w, y1, x, y1
+            BQ[5][1], BQ[5][2], BQ[6][1], BQ[6][2], BQ[7][1], BQ[7][2], BQ[8][1], BQ[8][2] = 0, 0, 1, 0, 1, 1, 0, 1
+            dl:AddImageQuad(ID[i], BQ[1], BQ[2], BQ[3], BQ[4], BQ[5], BQ[6], BQ[7], BQ[8], rgba(BADGE_TXT, 1))
         else
-            dl:AddRectFilled({ x, y0 }, { x + w, y1 }, rgba(b.c, 0.9), hpx * 0.3, 0)
-            dl:AddRect({ x, y0 }, { x + w, y1 }, black(0.6), hpx * 0.3, 0, 1)
+            dl:AddRectFilled({ x, y0 }, { x + w, y1 }, rgba(b.c, 0.9), h * 0.3, 0)
+            dl:AddRect({ x, y0 }, { x + w, y1 }, black(0.6), h * 0.3, 0, 1)
             local tw, th = tsize(b.t)
-            put(dl, b.t, x + (w - tw) / 2 + 1, y0 + (hpx - th) / 2 + 1, black(0.6))
-            put(dl, b.t, x + (w - tw) / 2, y0 + (hpx - th) / 2, rgba(BADGE_TXT, 1))
+            put(dl, b.t, x + (w - tw) / 2 + 1, y0 + (h - th) / 2 + 1, black(0.6))
+            put(dl, b.t, x + (w - tw) / 2, y0 + (h - th) / 2, rgba(BADGE_TXT, 1))
         end
         x = x + w + gap
     end
-    Draw.hl_rect('info', 'name', cx - total / 2, y0, cx + total / 2, y1)
+    Draw.hl_rect('info', 'name', x1 - total, top, x1, bot)
     if pushed then Fonts.pop() end
 end
 
@@ -446,8 +477,9 @@ local function draw_defev(dl, dv, cfg, x, y, d, push, base)
         end
     end
     if n > 0 then
-        local cx = x + (tonumber(dv.dx) or 0) + GX - total / 2
-        local cy = y + (tonumber(dv.dy) or 0) + GY
+        local al = oal('defev', 'center')
+        local cx = x + ox('defev', dv) + GX - (al == 'center' and total / 2 or (al == 'right' and total or 0))
+        local cy = y + oy('defev', dv) + GY
         Draw.hl_rect('info', 'defev', cx, cy - th / 2, cx + total, cy + th / 2)
         local first = true
         for i = 1, 2 do
@@ -534,6 +566,59 @@ local function dist_text(fmt, d)
 end
 M.dist_text = dist_text
 
+-- 1.0.7 (Joshua): the party's hate list on the docked card: one row per monster fighting the party (name, health %,
+-- distance, a thin health bar), the current target's row lit. rows[i] = { name, hp, dist, idx }; fills rows[i].y0 / y1
+-- with the row's place (for clicks). Returns the height drawn.
+local HATE_C = { 0.86, 0.22, 0.22, 1 }
+function M.draw_hate(dl, cfg, x0, y0, w, rows, n, cur, alpha, push)
+    if n <= 0 then return 0 end
+    AL = alpha or 1
+    local base = tonumber(cfg.text_size) or 1
+    local p = push and push(base * 0.9) or false
+    local _, th = tsize('Eg')
+    local rh, gap = th + 7, 2
+    local ds = cfg.dist
+    local nc, fill = cfg.name.color, (cfg.bar and cfg.bar.fill) or HATE_C
+    local y = y0
+    for i = 1, n do
+        local r = rows[i]
+        local ry0, ry1 = y, y + rh
+        if r.idx == cur then rect(dl, x0, ry0, x0 + w, ry1, white(0.16), 3) end
+        local cy = ry0 + (rh - 3) / 2
+        local pct = math.floor(math.max(0, math.min(100, tonumber(r.hp) or 0)) + 0.5)
+        local right = x0 + w - 4
+        local pt = ('%d%%'):format(pct)
+        local pw = tsize(pt)
+        text_at(dl, pt, right, cy, 'right', rgba(WHITE, 1), ST)
+        right = right - pw - 8
+        if r.dist ~= nil and ds then
+            local dt = dist_text(ds.format, r.dist)
+            local dw = tsize(dt)
+            local col = (ds.far and r.dist > (tonumber(ds.far_at) or 21)) and ds.far_color or ds.color
+            text_at(dl, dt, right, cy, 'right', rgba(col, 1), ST)
+            right = right - dw - 8
+        end
+        -- the name, cut to the room left
+        local nm = r.name or '?'
+        local room = right - (x0 + 4)
+        if tsize(nm) > room then
+            while #nm > 1 and tsize(nm .. '..') > room do nm = nm:sub(1, -2) end
+            nm = nm .. '..'
+        end
+        text_at(dl, nm, x0 + 4, cy, 'left', rgba(nc, r.idx == cur and 1 or 0.9), ST)
+        -- the health bar along the bottom of the row
+        local by0, by1 = ry1 - 3, ry1 - 1
+        rect(dl, x0 + 4, by0, x0 + w - 4, by1, black(0.55), 1)
+        if pct > 0 then rect(dl, x0 + 4, by0, x0 + 4 + (w - 8) * pct / 100, by1, rgba(fill, 1), 1) end
+        r.y0, r.y1 = ry0, ry1
+        y = ry1 + gap
+    end
+    if p then Fonts.pop() end
+    AL = 1
+    return y - gap - y0
+end
+
+local LAY_TEXT = { 'name', 'level', 'check', 'defev', 'dist' }
 function M.draw(dl, cfg, x, y, d, push)
     Fonts.update(cfg)
     GX, GY = d.gx or 0, d.gy or 0
@@ -546,6 +631,28 @@ function M.draw(dl, cfg, x, y, d, push)
     local n, b, lv, ck = cfg.name, cfg.bar, cfg.level, cfg.check
     local dv = cfg.defev
     local ds = cfg.dist
+    -- 1.0.6: the docked card's layout: the room every part switched on takes (shown for this target or not), so the
+    -- card keeps one size and place whatever the target is. d.lay = { name = true, ... }; fills d.lay.y0 / y1.
+    local L = d.lay
+    if L ~= nil then
+        L.y0, L.y1 = nil, nil
+        local function span(cy, h)
+            if L.y0 == nil or cy - h / 2 < L.y0 then L.y0 = cy - h / 2 end
+            if L.y1 == nil or cy + h / 2 > L.y1 then L.y1 = cy + h / 2 end
+        end
+        for _, k in ipairs(LAY_TEXT) do
+            local el = cfg[k]
+            if L[k] and el then
+                local p = sized(push, base, el)
+                local _, h = tsize('Eg')
+                span(y + oy(k, el), h)
+                if p then Fonts.pop() end
+            end
+        end
+        if L.bar then span(y + oy('bar', b), tonumber(b.height) or 9) end
+        if L.weak and cfg.weak then span(y + oy('weak', cfg.weak), tonumber(cfg.weak.size) or 16) end
+        if L.mob and cfg.mob then span(y + oy('mob', cfg.mob), tonumber(cfg.mob.size) or 16) end
+    end
 
     -- order by z (insertion sort over nine entries, no garbage)
     for i = 1, NKEYS do
@@ -563,14 +670,18 @@ function M.draw(dl, cfg, x, y, d, push)
             if b.show and AL > 0.01 and not d.nobar then          -- NPCs / objects (and players, if switched off) have no bar
                 local bx0, by0, bx1, by1 = draw_bar(dl, b, x, y, d)
                 Draw.hl_rect('info', 'bar', bx0, by0, bx1, by1)
-                if b.percent and not d.nopct then
+                if (b.percent or d.dock) and not d.nopct then      -- 1.0.5: d.dock: the docked card's own switches decide
                     PCT.scale = tonumber(b.percent_scale) or 0.8
                     local p = sized(push, base, PCT)
                     local pct = math.floor(math.max(0, math.min(100, tonumber(d.hp) or 0)) + 0.5)
                     local ptxt = PCT_TXT[pct]
                     if ptxt == nil then ptxt = ('%d%%'):format(pct); PCT_TXT[pct] = ptxt end
                     local po = OFF and OFF.pct      -- 2.9.1: players' / NPCs' own number position
-                    text_at(dl, ptxt, (bx0 + bx1) / 2 + (tonumber(po and po.dx or b.pct_dx) or 0), (by0 + by1) / 2 + (tonumber(po and po.dy or b.pct_dy) or 0), 'center', rgba(WHITE, 1), ST)
+                    local pcx, pcy = (bx0 + bx1) / 2 + (tonumber(po and po.dx or b.pct_dx) or 0), (by0 + by1) / 2 + (tonumber(po and po.dy or b.pct_dy) or 0)
+                    text_at(dl, ptxt, pcx, pcy, 'center', rgba(WHITE, 1), ST)
+                    -- 1.0.4: the number counts in the card's box (a number moved under the bar keeps the docked icons below it)
+                    local ptw, pth = tsize(ptxt)
+                    Draw.hl_rect('info', 'bar', pcx - ptw / 2, pcy - pth / 2, pcx + ptw / 2, pcy + pth / 2)
                     if p then Fonts.pop() end
                 end
             end
@@ -578,40 +689,40 @@ function M.draw(dl, cfg, x, y, d, push)
             AL = d.a_name or 1
             if n.show and d.name and not d.noname and AL > 0.01 then
                 local p = sized(push, base, n)
-                local tx0, ty0, tx1, ty1 = text_at(dl, d.name, x + ox('name', n) + GX, y + oy('name', n) + GY, 'center', rgba(d.tint or n.color, 1), ST)
+                local tx0, ty0, tx1, ty1 = text_at(dl, d.name, x + ox('name', n) + GX, y + oy('name', n) + GY, oal('name', 'center'), rgba(d.tint or n.color, 1), ST)
                 Draw.hl_rect('info', 'name', tx0, ty0, tx1, ty1)
                 if p then Fonts.pop() end
-                if (d.badge_n or 0) > 0 then M.draw_badges(dl, (tx0 + tx1) / 2, ty0 - 3, d, push) end
+                if (d.badge_n or 0) > 0 then M.draw_badges(dl, tx0, ty0, ty1, d, push) end
             end
         elseif k == 'level' then
             AL = d.a_level or 1
-            if lv.show and d.mob ~= false and AL > 0.01 then
+            if (lv.show or d.dock) and d.mob ~= false and AL > 0.01 then
                 local t = d.level or ((lv.unknown and d.mob ~= false) and 'Lv ?' or nil)
                 if t then
                     local p = sized(push, base, lv)
                     local col = rgba(lv.color, d.level and 1 or 0.55)
-                    local tx0, ty0, tx1, ty1 = text_at(dl, t, x + (tonumber(lv.dx) or 0) + GX, y + (tonumber(lv.dy) or 0) + GY, 'right', col, ST)
+                    local tx0, ty0, tx1, ty1 = text_at(dl, t, x + ox('level', lv) + GX, y + oy('level', lv) + GY, oal('level', 'right'), col, ST)
                     Draw.hl_rect('info', 'level', tx0, ty0, tx1, ty1)
                     if p then Fonts.pop() end
                 end
             end
         elseif k == 'check' then
             AL = d.a_check or 1
-            if ck.show and d.mob ~= false and AL > 0.01 then
+            if (ck.show or d.dock) and d.mob ~= false and AL > 0.01 then
                 local t = d.check or ((ck.unknown and d.mob ~= false) and '?' or nil)
                 if t then
                     local p = sized(push, base, ck)
                     local col
                     if d.check then col = rgba(ck.by_diff and d.check_color or ck.color, d.inferred and 0.7 or 1)
                     else col = rgba(ck.color, 0.55) end
-                    local tx0, ty0, tx1, ty1 = text_at(dl, t, x + (tonumber(ck.dx) or 0) + GX, y + (tonumber(ck.dy) or 0) + GY, 'center', col, ST)
+                    local tx0, ty0, tx1, ty1 = text_at(dl, t, x + ox('check', ck) + GX, y + oy('check', ck) + GY, oal('check', 'center'), col, ST)
                     Draw.hl_rect('info', 'check', tx0, ty0, tx1, ty1)
                     if p then Fonts.pop() end
                 end
             end
         elseif k == 'defev' then
             AL = d.a_defev or 1
-            if dv and dv.show and AL > 0.01 and (d.eva ~= nil or d.def ~= nil) then
+            if dv and (dv.show or d.dock) and AL > 0.01 and (d.eva ~= nil or d.def ~= nil) then
                 draw_defev(dl, dv, cfg, x, y, d, push, base)
             end
         elseif k == 'dist' then
@@ -619,8 +730,20 @@ function M.draw(dl, cfg, x, y, d, push)
             if ds and ds.show and AL > 0.01 and d.dist ~= nil and not d.nodist then
                 local p = sized(push, base, ds)
                 local col = (ds.far and d.dist > (tonumber(ds.far_at) or 21)) and ds.far_color or ds.color
-                local tx0, ty0, tx1, ty1 = text_at(dl, dist_text(ds.format, d.dist), x + ox('dist', ds) + GX, y + oy('dist', ds) + GY, 'left', rgba(col, 1), ST)
-                Draw.hl_rect('info', 'dist', tx0, ty0, tx1, ty1)
+                local txt = dist_text(ds.format, d.dist)
+                local ax, ay, al = x + ox('dist', ds) + GX, y + oy('dist', ds) + GY, oal('dist', 'left')
+                if ds.pad ~= false then
+                    -- 1.0.6: the number sits right-aligned in a slot as wide as "88.8y", so its digits and unit stay put
+                    -- as it changes (and the card around it keeps its size)
+                    local w, h = tsize(txt)
+                    local sw = math.max(w, (tsize(dist_text(ds.format, 88.8))), (tsize(dist_text(ds.format, 0))))
+                    local sx = (al == 'center' and ax - sw / 2) or (al == 'right' and ax - sw) or ax
+                    text_at(dl, txt, sx + sw, ay, 'right', rgba(col, 1), ST, w, h)
+                    Draw.hl_rect('info', 'dist', sx, ay - h / 2, sx + sw, ay + h / 2)
+                else
+                    local tx0, ty0, tx1, ty1 = text_at(dl, txt, ax, ay, al, rgba(col, 1), ST)
+                    Draw.hl_rect('info', 'dist', tx0, ty0, tx1, ty1)
+                end
                 if p then Fonts.pop() end
             end
         elseif k == 'fx' and d.fx_draw ~= nil then

@@ -31,7 +31,7 @@
 
 addon.name      = 'partyramaxi';
 addon.author    = 'Banedon (based on hideparty by atom0s)';
-addon.version   = '1.0.3';
+addon.version   = '1.0.8';
 addon.desc      = 'Party and alliance list, target bar, pointer and recast timers that replace the game\'s own windows.';
 addon.link      = 'https://ashitaxi.com/';
 
@@ -241,6 +241,7 @@ do
         jewel = Png.new(png_backend, base .. '\\icons\\elements\\jewel\\') }
     Weak.find_icon, Weak.placeholder = Fx.find_icon, Fx.placeholder
     Mob.png = Png.new(png_backend, base .. '\\icons\\mob\\')
+    Info.png_badge = Png.new(png_backend, base .. '\\icons\\badges\\')     -- 1.0.4: the name icons
     hpp.png_mob = { glossy = Mob.png, flat = Png.new(png_backend, base .. '\\icons\\mob\\flat\\'),
         jewel = Png.new(png_backend, base .. '\\icons\\mob\\jewel\\') }
     -- 2.10.0: Glyph, High contrast and Glass (white symbol, colour glow): symbol-only pictures for all three kinds
@@ -350,6 +351,7 @@ do
         for _, p in ipairs(hpp.fx_pack_pngs) do pcall(p.release_all, p) end
         pcall(hpp.fx_root_png.reload, hpp.fx_root_png)
         pcall(Weak.png_elem.reload, Weak.png_elem)
+        if Info.png_badge then pcall(Info.png_badge.reload, Info.png_badge) end      -- 1.0.4: name icons
         for _, set in ipairs({ hpp.png_weak, hpp.png_mob, hpp.png_elem }) do
             for _, p in pairs(set) do pcall(p.reload, p) end
         end
@@ -612,7 +614,7 @@ end
 local SETTLE = { main = { idx = -1, n = 0, f = -1 }, sub = { idx = -1, n = 0, f = -1 }, focus = { idx = -1, n = 0, f = -1 } }
 function hpp.settled(which, idx)
     local s = SETTLE[which] or SETTLE.main
-    if s.idx ~= idx then s.idx, s.n, s.f = idx, 0, hpp.fno end
+    if s.idx ~= idx then s.idx, s.n, s.f, s.t0 = idx, 0, hpp.fno, hpp.now end      -- t0: when it was picked
     if s.f ~= hpp.fno then s.f = hpp.fno; s.n = s.n + 1; if s.n == 3 then s.t = hpp.now end end
     return s.n >= 3
 end
@@ -623,6 +625,19 @@ function hpp.fade_in_mul(which, now)
     local d = tonumber(hpp.s.info.fade_in) or 0.15
     if d <= 0 or s.t == nil then return 1 end
     return math.max(0, math.min(1, (now - s.t) / d))
+end
+
+hpp.DOCK_PARTS = { 'name', 'bar', 'pct', 'dist', 'level', 'check', 'defev', 'weak', 'mob' }
+hpp.DOCK_ALIGN = { name = 'center', dist = 'left', level = 'right', check = 'center', defev = 'center' }   -- 1.0.6: usual justify
+-- 1.0.5 (Joshua): the check's results always fade in CHECK_SHOW s after the target was picked (or when the reply
+-- came, if later), over CHECK_FADE s. Fixed, no setting.
+hpp.CHECK_SHOW, hpp.CHECK_FADE = 0.2, 0.15
+function hpp.check_fade_mul(which, c, now)
+    local s = SETTLE[which] or SETTLE.main
+    if s.t0 == nil then return 1 end
+    local start = s.t0 + hpp.CHECK_SHOW
+    if c ~= nil and (tonumber(c.at) or 0) > start then start = c.at end
+    return math.max(0, math.min(1, (now - start) / hpp.CHECK_FADE))
 end
 
 ---------------------------------------------------------------------------
@@ -893,12 +908,20 @@ end
 function hpp.shows_info(idx) return hpp.info_kind(idx) ~= nil end
 
 -- Where the info for entity idx goes (the pointer position), whatever the arrow settings are.
-local function info_place_raw(which, idx, out)
+local function info_place_src(which, idx, out)
     if which == 'focus' then return entity_screen(idx, out) end     -- the remembered enemy: only ever over its own model
     if hpp.s.arrow.mode == 'native' then
         return native_screen(which, out) or entity_screen(idx, out)
     end
     return entity_screen(idx, out) or native_screen(which, out)
+end
+-- 1.0.8 (Joshua): the target counts as off the screen as soon as its spot leaves the screen (the game's pointer spot
+-- has no edge test, and the model's had a 50 px margin, so it took a target nearly behind you to dock)
+local function info_place_raw(which, idx, out)
+    if not info_place_src(which, idx, out) then return false end
+    local W, H = hpp.disp_w or 0, hpp.disp_h or 0
+    if W > 0 and H > 0 and (out.x < 0 or out.y < 0 or out.x > W or out.y > H) then return false end
+    return true
 end
 
 -- The info stays where it was while the sub-target cursor is in use. The game's pointer for the held target can move
@@ -921,7 +944,8 @@ local function info_place(which, idx, out)
     local a = ANCH[idx]
     if a ~= nil and entity_screen(idx, TMPP) then
         out.x, out.y = TMPP.x + a.dx, TMPP.y + a.dy
-        return true
+        local W, H = hpp.disp_w or 0, hpp.disp_h or 0          -- 1.0.8: off the screen is off the screen here too
+        return not (W > 0 and H > 0 and (out.x < 0 or out.y < 0 or out.x > W or out.y > H))
     end
     return ok
 end
@@ -1119,12 +1143,19 @@ local function draw_fx_layer(dl, d)
 end
 
 -- 2.7.7: the weakness icons, one more layer of the info
+-- 1.0.5: the docked card's own place for the weakness icons / monster info: the difference moves the anchor
+local function off_shift(k, el, d)
+    local o = d.off and d.off[k]
+    if o == nil then return 0, 0 end
+    return (tonumber(o.dx) or 0) - (tonumber(el.dx) or 0), (tonumber(o.dy) or 0) - (tonumber(el.dy) or 0)
+end
 local function draw_weak_layer(dl, d)
     local I = hpp.s.info
+    local sx, sy = off_shift('weak', I.weak, d)
     local st = I.weak.icon_style or I.icon_style             -- 2.10.1: the weaknesses have their own picture style
     if hpp.png_weak then Weak.png_weak = hpp.style_png(hpp.png_weak, 'weak', st) end
     if hpp.png_elem then Weak.png_elem = hpp.style_png(hpp.png_elem, 'elements', st) end
-    Weak.draw(dl, I.weak, d.px or hpp.pos.x, d.py or hpp.pos.y, d.weak_l, d.weak_n, d.weak_k, d.weak_alpha, d.gx, d.gy, push_font_size, tonumber(I.text_size) or 1, d.mob_rec)
+    Weak.draw(dl, I.weak, (d.px or hpp.pos.x) + sx, (d.py or hpp.pos.y) + sy, d.weak_l, d.weak_n, d.weak_k, d.weak_alpha, d.gx, d.gy, push_font_size, tonumber(I.text_size) or 1, d.mob_rec)
 end
 -- 2.8.0: the monster info badges (aggro, links, detection...) and their summary line
 local function draw_mob_layer(dl, d)
@@ -1132,7 +1163,8 @@ local function draw_mob_layer(dl, d)
     if hpp.png_mob then Mob.png = hpp.style_png(hpp.png_mob, 'mob', I.icon_style) end
     local wk = d.weak_k or (d.mob_rec and d.mob_rec.K)
     local wt = wk and Weak.tooltip(wk, I.weak, true) or nil
-    Mob.draw(dl, I.mob, d.px or hpp.pos.x, d.py or hpp.pos.y, d.mob_l, d.mob_n, d.mob_rec, d.mob_alpha, d.gx, d.gy, push_font_size, tonumber(I.text_size) or 1, wt)
+    local sx, sy = off_shift('mob', I.mob, d)
+    Mob.draw(dl, I.mob, (d.px or hpp.pos.x) + sx, (d.py or hpp.pos.y) + sy, d.mob_l, d.mob_n, d.mob_rec, d.mob_alpha, d.gx, d.gy, push_font_size, tonumber(I.text_size) or 1, wt)
 end
 
 -- Draw the info (and effects) of one monster. as_main = true for the main target (fade + glide apply).
@@ -1142,28 +1174,37 @@ local NPC_BLUE = { 0.55, 0.75, 1.00, 1 }
 -- above it. DOCK.r* = the bar's box relative to its anchor (last drawn), DOCK.list = the list's box last frame.
 -- 2.12.2: the panel is the party list's width (the bar centred in it), fades in over DOCK_FADE and RecastXI slides up
 -- (and back down) over the same time (DOCK.slide); info.dock_pin keeps the current target there even when on screen.
-local DOCK = { rx0 = -90, ry0 = -70, rx1 = 90, ry1 = 10, on = false, was = nil, t0 = -10, list = nil, box = { 0, 0, 0, 0 }, pad = 13,     -- 2.13.2: 13 px inside the panel (was 8)
+local DOCK = { lay = {}, rx0 = -90, ry0 = -70, rx1 = 90, ry1 = 10, on = false, was = nil, t0 = -10, list = nil, box = { 0, 0, 0, 0 }, pad = 13,     -- 2.13.2: 13 px inside the panel (was 8)
                slide = { from = 0, to = 0, cur = 0, t0 = -10 } }
 local DOCK_M, DOCK_FADE = 20, 0.2
 hpp.dock = DOCK
+-- 1.0.6: the card's anchor no longer follows what this target shows (its box used to be centred in the panel, so a
+-- level, a longer distance or name icons moved everything): it sits at the middle of the list, and the panel's
+-- height comes from the layout (DOCK.ly0 / ly1: the room of every part switched on), growing only for more rows
+-- (effects, extra weakness rows). Its sides reach the list's, or further when a part sticks out.
 local function dock_place(out)
     local W, H = hpp.disp_w > 0 and hpp.disp_w or 1280, hpp.disp_h > 0 and hpp.disp_h or 720
     local p = DOCK.pad
-    local bw, bh = DOCK.rx1 - DOCK.rx0 + 2 * p, DOCK.ry1 - DOCK.ry0 + 2 * p
-    local L, bx0, by1 = DOCK.list, nil, nil
+    local top, bot = DOCK.ry0, DOCK.ry1
+    if DOCK.ly0 ~= nil and DOCK.ly0 < top then top = DOCK.ly0 end
+    if DOCK.ly1 ~= nil and DOCK.ly1 > bot then bot = DOCK.ly1 end
+    local bh = bot - top + 2 * p
+    local L, cx, by1 = DOCK.list, nil, nil
+    local bx0, bx1
     if L ~= nil then
-        local lw = L[3] - L[1]                -- the list's width; a wider bar widens the panel, centred over the list
-        if lw > bw then bw = lw end
-        bx0 = L[1] + (lw - bw) / 2
-        by1 = L[2] - DOCK_M
+        cx, by1 = (L[1] + L[3]) / 2, L[2] - DOCK_M
+        bx0, bx1 = L[1], L[3]                       -- 1.0.8 (Joshua): the party list's width, always
     else
-        bx0, by1 = W - DOCK_M - bw, H * 0.7
+        cx, by1 = W - DOCK_M - p - DOCK.rx1, H * 0.7
+        bx0, bx1 = cx + DOCK.rx0 - p, cx + DOCK.rx1 + p
     end
-    bx0 = math.max(DOCK_M, math.min(W - DOCK_M - bw, bx0))
+    local sh = 0                                    -- kept on the screen
+    if bx0 < DOCK_M then sh = DOCK_M - bx0 elseif bx1 > W - DOCK_M then sh = (W - DOCK_M) - bx1 end
+    bx0, bx1, cx = bx0 + sh, bx1 + sh, cx + sh
     local by0 = math.max(DOCK_M, by1 - bh)
     local B = DOCK.box
-    B[1], B[2], B[3], B[4] = bx0, by0, bx0 + bw, by0 + bh
-    out.x, out.y = bx0 + bw / 2 - (DOCK.rx0 + DOCK.rx1) / 2, by0 + p - DOCK.ry0
+    B[1], B[2], B[3], B[4] = bx0, by0, bx1, by0 + bh
+    out.x, out.y = cx, by0 + p - top
 end
 -- RecastXI's lift above the list (px): eases to the docked panel's top over DOCK_FADE, and back to 0
 local function dock_slide(want, now)
@@ -1200,8 +1241,159 @@ local function sub_apart(I, idx, now)
     hpp.pos.y = hpp.pos.y + SEP.cur
 end
 
+-- 1.0.7 (Joshua): the party's hate list on the docked card. A monster is on it while it is alive, within 50 yalms, and
+-- claimed by a party / alliance member, or fought by one (engaged on it), or targeting one, or acted on one / was acted
+-- on by one in the last HATE_SECS. Rows keep the order they joined in, so they do not jump around. Click a row to
+-- target that monster.
+local HATE_SECS = 30
+local HATE = { rows = {}, n = 0, seen = {}, first = {}, at = -1, ms = {}, mi = {}, fight = {}, h = 0, t0 = -10, was = false }
+hpp.hate = HATE
+local function hate_sort(a, b) if a.first ~= b.first then return a.first < b.first end return a.idx < b.idx end
+function hpp.hate_build(now)
+    if now - HATE.at < 0.25 then return end
+    HATE.at = now
+    local e, party = get_entity(), get_party()
+    local MS, MI, FI = HATE.ms, HATE.mi, HATE.fight
+    for k in pairs(MS) do MS[k] = nil end
+    for k in pairs(MI) do MI[k] = nil end
+    for k in pairs(FI) do FI[k] = nil end
+    local n = 0
+    if e ~= nil and party ~= nil then
+        for i = 0, 17 do
+            if party:GetMemberIsActive(i) == 1 then
+                local sid, mi = party:GetMemberServerId(i) or 0, party:GetMemberTargetIndex(i) or 0
+                if sid ~= 0 then MS[sid] = true end
+                if mi ~= 0 then
+                    MI[mi] = true
+                    if (e:GetStatus(mi) or 0) == 1 then
+                        local ok, t = pcall(e.GetTargetedIndex, e, mi)
+                        t = ok and tonumber(t) or 0
+                        if t ~= 0 then FI[t] = true end
+                    end
+                end
+            end
+        end
+        for idx = 1, 1023 do
+            if is_monster(idx) and (e:GetHPPercent(idx) or 0) > 0 then
+                local sid = e:GetServerId(idx) or 0
+                if sid ~= 0 then
+                    local hot = FI[idx] == true
+                    if not hot then
+                        local ok, c = pcall(e.GetClaimStatus, e, idx)
+                        c = ok and tonumber(c) or 0
+                        hot = c ~= 0 and MS[c] == true
+                    end
+                    if not hot then
+                        local t = HATE.seen[sid]
+                        hot = t ~= nil and now - t <= HATE_SECS
+                    end
+                    if not hot then
+                        local ok, t = pcall(e.GetTargetedIndex, e, idx)
+                        t = ok and tonumber(t) or 0
+                        hot = t ~= 0 and MI[t] == true
+                    end
+                    local d2 = hot and tonumber(e:GetDistance(idx)) or nil
+                    if hot and d2 ~= nil and d2 >= 0 and d2 <= 2500 then
+                        n = n + 1
+                        local r = HATE.rows[n]
+                        if r == nil then r = {}; HATE.rows[n] = r end
+                        if HATE.first[sid] == nil then HATE.first[sid] = now end
+                        r.idx, r.sid, r.first = idx, sid, HATE.first[sid]
+                    end
+                end
+            end
+        end
+    end
+    for i = n + 1, #HATE.rows do HATE.rows[i] = nil end
+    HATE.n = n
+    -- forget the join times of monsters no longer on it
+    for sid in pairs(HATE.first) do
+        local on = false
+        for i = 1, n do if HATE.rows[i].sid == sid then on = true; break end end
+        if not on then HATE.first[sid] = nil end
+    end
+    for sid, t in pairs(HATE.seen) do if now - t > HATE_SECS then HATE.seen[sid] = nil end end
+    table.sort(HATE.rows, hate_sort)
+end
+-- this frame's names, health and distance of the rows (cheap; the list itself is rebuilt 4 times a second)
+-- 1.0.8 (Joshua): your current target is on its card, not in the list: it leaves the list while it is your target
+-- and comes back (in its old place) when you target something else. HATE.show = the rows shown, in order.
+HATE.show = {}
+local function hate_cur() return hpp.st.main ~= 0 and hpp.st.main or (hpp.st.held or 0) end
+local function hate_count(max)
+    local cur, n = hate_cur(), 0
+    for i = 1, HATE.n do if HATE.rows[i].idx ~= cur then n = n + 1; if n >= max then break end end end
+    return n
+end
+local function hate_fill(e, max)
+    local cur, n, S = hate_cur(), 0, HATE.show
+    for i = 1, HATE.n do
+        local r = HATE.rows[i]
+        if r.idx ~= cur and n < max then
+            n = n + 1
+            S[n] = r
+            r.name, r.hp = e:GetName(r.idx), e:GetHPPercent(r.idx) or 0
+            local d2 = tonumber(e:GetDistance(r.idx))
+            r.dist = (d2 ~= nil and d2 >= 0) and math.sqrt(d2) or nil
+        end
+    end
+    for i = n + 1, #S do S[i] = nil end
+    return n
+end
+-- targets a monster by its index (Ashita's target object); false when this Ashita cannot
+function hpp.target_index(idx)
+    local ok, r = pcall(function ()
+        local t = AshitaCore:GetMemoryManager():GetTarget()
+        return t:SetTarget(idx, false)
+    end)
+    if not ok and not hpp.target_err then
+        hpp.target_err = true
+        err('Could not target from the hate list (this Ashita has no SetTarget): ' .. tostring(r))
+    end
+    return ok
+end
+-- the rows' click areas: an invisible window over them, one button per row
+local HWIN = { pos = { 0, 0 }, size = { 0, 0 }, open = { true }, btn = { 0, 0 } }
+local function hate_clicks(x0, y0, w, h, n)
+    if n <= 0 or h <= 0 then return end
+    local fl = function (name) local v = rawget(_G, name); return type(v) == 'number' and v or 0 end
+    local flags = bit.bor(fl('ImGuiWindowFlags_NoDecoration'), fl('ImGuiWindowFlags_NoBackground'), fl('ImGuiWindowFlags_NoNav'),
+        fl('ImGuiWindowFlags_NoFocusOnAppearing'), fl('ImGuiWindowFlags_NoSavedSettings'), fl('ImGuiWindowFlags_NoScrollWithMouse'),
+        fl('ImGuiWindowFlags_NoMove'), fl('ImGuiWindowFlags_NoBringToFrontOnFocus'))
+    HWIN.pos[1], HWIN.pos[2], HWIN.size[1], HWIN.size[2] = x0, y0, w, h
+    imgui.SetNextWindowPos(HWIN.pos, fl('ImGuiCond_Always'))
+    imgui.SetNextWindowSize(HWIN.size, fl('ImGuiCond_Always'))
+    local okb, open = pcall(imgui.Begin, 'partyramaxi_hate', HWIN.open, flags)
+    if okb and open then
+        pcall(function ()
+            for i = 1, n do
+                local r = HATE.show[i]
+                if r ~= nil and r.y0 ~= nil then
+                    HWIN.btn[1], HWIN.btn[2] = w, math.max(1, r.y1 - r.y0)
+                    imgui.SetCursorScreenPos({ x0, r.y0 })
+                    if imgui.InvisibleButton('##pxi_hate' .. i, HWIN.btn) then hpp.target_index(r.idx) end
+                end
+            end
+        end)
+    end
+    if okb then imgui.End() end
+end
+local function hate_draw(dl, I, x0, y0, w, alpha, now)
+    local e = get_entity()
+    if e == nil then return 0 end
+    local n = hate_fill(e, math.max(1, math.floor(tonumber(I.dock_hate_max) or 8)))
+    local ok, h = pcall(Info.draw_hate, dl, I, x0, y0, w, HATE.show, n, hate_cur(), alpha, push_font_size)
+    if not ok then
+        if not hpp.hate_err then hpp.hate_err = true; err('The hate list hit an error: ' .. tostring(h)) end
+        return 0
+    end
+    hate_clicks(x0, y0, w, h, n)
+    return h
+end
+
 -- mode (2.12.7): nil = over the target, docked when off the screen (or pinned); 'dock' = only the docked card;
 -- 'float' = only over the target (the pinned card's "keep the bar over the target too" pass)
+local PIN_TMP = { x = 0, y = 0 }
 local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     local dm = death_mul(e, idx, now)
     if dm == nil then return end
@@ -1217,8 +1409,12 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     local docked = false
     local pin = as_main and I.dock ~= false and I.dock_pin == true and mode ~= 'float'   -- 2.12.2: pinned there even when on screen
     if K.abs then
-        if mode == 'dock' then return end       -- a kind on a fixed spot keeps it (drawn by the 'float' pass)
-        hpp.pos.x, hpp.pos.y = tonumber(K.ax) or 0, tonumber(K.ay) or 0
+        -- 1.0.8 (Joshua): a pinned kind (its spot replaces floating) still docks when its target is off the screen,
+        -- or always with "Always dock the current target"; else it sits at its spot
+        if as_main and I.dock ~= false and mode ~= 'float' and (pin or not info_place(which, idx, PIN_TMP)) then
+            dock_place(hpp.pos); docked = true
+        elseif mode == 'dock' then return
+        else hpp.pos.x, hpp.pos.y = tonumber(K.ax) or 0, tonumber(K.ay) or 0 end
     elseif pin or not info_place(which, idx, hpp.pos) then
         if mode == 'float' or not (as_main and I.dock ~= false) then return end
         dock_place(hpp.pos); docked = true
@@ -1236,14 +1432,30 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     info_d.mob = kind == 'mob'
     info_d.off = (kind ~= 'mob') and K.off or nil
     info_d.badge_n = 0
-    if kind == 'pc' and K.badges ~= false then hpp.name_badges(e, idx, info_d, K) end
-    -- 2.13.2: the game's names are over characters on the screen, so the docked card keeps its name
-    info_d.noname, info_d.nobar, info_d.nodist = not K.name or (K.name_names == true and not docked and hpp.names_shown()), not K.hp, not K.dist
+    -- 1.0.5: the docked card has its own switch for each part (info.dock_*), apart from the kind's
+    if kind == 'pc' and ((docked and I.dock_badges ~= false) or (not docked and K.badges ~= false)) then hpp.name_badges(e, idx, info_d, K) end
+    info_d.dock = docked
+    if docked then info_d.off = I.dock_pos end       -- 1.0.5: the docked card's own place for each part
+    -- 1.0.6: the room each part switched on takes on the docked card, whatever this target shows
+    if docked then
+        local LY = DOCK.lay
+        LY.name, LY.dist, LY.bar = I.dock_name ~= false, I.dock_dist ~= false, I.dock_bar ~= false
+        LY.level, LY.check, LY.defev = I.dock_level == true, I.dock_check == true, I.dock_defev == true
+        LY.weak, LY.mob = I.dock_weak == true, I.dock_mob == true
+        info_d.lay = LY
+    else
+        info_d.lay = nil
+    end
+    if docked then
+        info_d.noname, info_d.nobar, info_d.nodist = I.dock_name == false, I.dock_bar == false, I.dock_dist == false
+    else
+        info_d.noname, info_d.nobar, info_d.nodist = not K.name, not K.hp, not K.dist
+    end
     if kind == 'pc' and not info_d.nodist then       -- 2.9.2: no distance when the target is you
         local p = get_party()
         if p ~= nil and idx == (p:GetMemberTargetIndex(0) or 0) then info_d.nodist = true end
     end
-    info_d.nopct = I.bar['pct_' .. kind] == false
+    info_d.nopct = (docked and I.dock_pct == false) or (not docked and I.bar['pct_' .. kind] == false)
     local c = info_d.mob and Info.get(idx, name) or nil
     info_d.level = info_d.mob and Info.level_text(c) or nil
     info_d.check, info_d.check_color = nil, nil
@@ -1252,7 +1464,7 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     info_d.inferred = false
     -- 2.8.0: LandSandBoat's record for this monster (weaknesses, aggro, detection, level...); its level (exact, so it replaces the check's estimate)
     local rec = nil
-    if info_d.mob and (I.weak.show or I.mob.show or I.level.db ~= false) then rec = Mob.lookup(e:GetServerId(idx) or 0, name) end
+    if info_d.mob and (I.weak.show or I.mob.show or I.level.db ~= false or (docked and (I.dock_weak or I.dock_mob))) then rec = Mob.lookup(e:GetServerId(idx) or 0, name) end
     info_d.mob_rec = rec
     -- 2.10.0: this monster's own check (its level, when the server tells it) wins; else the data's level range
     if rec and I.level.db ~= false and not (c and c.level) then info_d.level = Mob.level_text(rec) or info_d.level end
@@ -1268,13 +1480,23 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
         info_d.a_name, info_d.a_bar, info_d.a_level, info_d.a_check, info_d.a_defev, info_d.a_dist = dm, dm, dm, dm, dm, dm
     end
     info_d.gx, info_d.gy = mx, my
-    -- 2.12.3: the docked card shows only the name, health bar and distance (info.dock_simple, on by default)
-    local simple = docked and I.dock_simple ~= false
-    if simple then info_d.a_level, info_d.a_check, info_d.a_defev = 0, 0, 0 end
+    -- 1.0.5: the docked card's own switches for level, check and defense / evasion (2.12.3's "only name, health and
+    -- distance" became these, off by default)
+    if docked then
+        if I.dock_level ~= true then info_d.a_level = 0 end
+        if I.dock_check ~= true then info_d.a_check = 0 end
+        if I.dock_defev ~= true then info_d.a_defev = 0 end
+    end
+    -- 1.0.5: the check's results (level, difficulty, defense / evasion) fade in over CHECK_FADE s, starting
+    -- CHECK_SHOW s after the target was picked, or when the reply came if that was later
+    if info_d.mob then
+        local cm = hpp.check_fade_mul(which, c, now)
+        info_d.a_level, info_d.a_check, info_d.a_defev = info_d.a_level * cm, info_d.a_check * cm, info_d.a_defev * cm
+    end
     -- the effect icons are one more layer of the info (drawn from Info.draw at their place in the stack)
     info_d.fx_n = 0
     local dock_fx = docked and I.dock_fx ~= false        -- 1.0.0: the docked card uses the party list's status icons instead
-    if K.icons and not simple and not dock_fx then
+    if K.icons and not docked then
         local sid = e:GetServerId(idx) or 0
         if sid ~= 0 then
             info_d.fx_n = Fx.active(sid, now, I.fx, fx_list)
@@ -1286,10 +1508,11 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     -- its addon's data has this monster (Data: MobDB if installed)
     info_d.weak_n, info_d.weak_draw, info_d.weak_k = 0, nil, nil
     local WK = rec and rec.K or nil
-    if I.weak.show and info_d.mob and I.weak.source ~= 'lsb' then
+    local weak_on = (docked and I.dock_weak == true) or (not docked and I.weak.show)     -- 1.0.5: the dock's own switch
+    if weak_on and info_d.mob and I.weak.source ~= 'lsb' then
         WK = Weak.mobdb(e:GetServerId(idx) or 0, name, WK) or WK
     end
-    if I.weak.show and WK ~= nil and not simple then
+    if weak_on and WK ~= nil then
         local K = WK
         info_d.weak_n = Weak.build(K, I.weak, weak_list)
         info_d.weak_k, info_d.weak_l = K, weak_list
@@ -1297,7 +1520,7 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
         info_d.weak_draw = info_d.weak_n > 0 and draw_weak_layer or nil
     end
     info_d.mob_n, info_d.mob_draw = 0, nil
-    if I.mob.show and rec ~= nil and not simple then
+    if rec ~= nil and ((docked and I.dock_mob == true) or (not docked and I.mob.show)) then
         info_d.mob_n = Mob.build(rec, I.mob, mob_list)
         info_d.mob_l, info_d.mob_alpha = mob_list, as_main and MAIN.mob * dm or dm
         info_d.mob_draw = draw_mob_layer
@@ -1326,15 +1549,37 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
         if (info_d.hp or 0) <= 0 and sid ~= 0 then Fx.fx[sid] = nil; sid = 0 end
         local B, p = DOCK.box, DOCK.pad
         local x0, iw = B[1] + p, math.max(1, (B[3] - B[1]) - 2 * p)
-        local y0 = (IB.n > 0 and IB.y1 or hpp.pos.y) + 4
-        local ok, fw, fh = pcall(PList.buffs_ext, dl, hpp.s.list.buffs, sid, x0, y0, iw, dm, now, I.dock_fx_size, I.dock_fx_timers ~= false)
-        if ok and (fh or 0) > 0 then
+        -- 1.0.6: under the layout's room too, so the icons start at the same height for every target
+        local LY = DOCK.lay
+        local base_y = (IB.n > 0 and IB.y1 or hpp.pos.y)
+        if LY.y1 ~= nil and LY.y1 > base_y then base_y = LY.y1 end
+        local y0 = base_y + 8       -- 1.0.4: 8 px under the card's content (was 4)
+        -- 1.0.5: or with the party list's own settings and place (off the card when the list's are)
+        local ok, fw, fh, away = pcall(PList.buffs_ext, dl, hpp.s.list.buffs, sid, x0, y0, iw, dm, now, I.dock_fx_size, I.dock_fx_timers ~= false,
+            I.dock_fx_list == true, B[2])
+        if ok and (fh or 0) > 0 and not away then
             -- only the height grows the card: the icons never reach past the panel's sides, and its width stays the
             -- list's (or the card's), so the card is not pushed sideways by its own icons
             if IB.n == 0 then IB.x0, IB.y0, IB.x1, IB.y1 = x0, y0, x0 + fw, y0 + fh
             else IB.y1 = math.max(IB.y1, y0 + fh) end
             IB.n = IB.n + 1
         elseif not ok and not hpp.dock_fx_err then hpp.dock_fx_err = true; err('Effects on the docked card are off after an error: ' .. tostring(fw)) end
+    end
+    -- 1.0.7: the party's hate list under the card
+    if docked and as_main and I.dock_hate == true and hate_count(1) > 0 then
+        local B, p = DOCK.box, DOCK.pad
+        local x0, iw = B[1] + p, math.max(1, (B[3] - B[1]) - 2 * p)
+        local base_y = (IB.n > 0 and IB.y1 or hpp.pos.y)
+        local LY = DOCK.lay
+        if LY.y1 ~= nil and LY.y1 > base_y then base_y = LY.y1 end
+        local y0 = base_y + 8
+        local h = hate_draw(dl, I, x0, y0, iw, dm, now)
+        if h > 0 then
+            if IB.n == 0 then IB.x0, IB.y0, IB.x1, IB.y1 = x0, y0, x0 + iw, y0 + h
+            else IB.y1 = math.max(IB.y1, y0 + h) end
+            IB.n = IB.n + 1
+            HATE.drawn = true
+        end
     end
     IB.on = false
     if main_ib ~= nil then
@@ -1348,6 +1593,11 @@ local function draw_target(e, I, dl, idx, which, as_main, now, mode)
     if docked and IB.n > 0 then              -- 2.12.0: the docked card's box around its anchor, for its panel
         DOCK.rx0, DOCK.ry0 = IB.x0 - IB.gx - hpp.pos.x, IB.y0 - IB.gy - hpp.pos.y
         DOCK.rx1, DOCK.ry1 = IB.x1 - IB.gx - hpp.pos.x, IB.y1 - IB.gy - hpp.pos.y
+    end
+    if docked then                           -- 1.0.6: the layout's room, for the panel's height
+        local LY = DOCK.lay
+        DOCK.ly0 = LY.y0 and (LY.y0 - hpp.pos.y) or nil
+        DOCK.ly1 = LY.y1 and (LY.y1 - hpp.pos.y) or nil
     end
     info_d.px, info_d.py = nil, nil
 end
@@ -1393,6 +1643,8 @@ function hpp.draw_info(now)
     end
     IB.n = 0
     DOCK.on = false
+    HATE.drawn = false
+    if I.dock_hate == true and I.dock ~= false and not (hpp.ui_hidden or hpp.in_event) then hpp.hate_build(now) else HATE.n = 0 end
 
     -- You died: no enemy bar (the fight is over for you), and nothing remembered for when you get up.
     if hpp.dead then hpp.focus, hpp.ghost, hpp.prev_main = 0, 0, 0; return end
@@ -1445,6 +1697,24 @@ function hpp.draw_info(now)
         if t0 == nil or now - t0 >= DEATH_FADE then hpp.ghost = 0
         elseif g ~= main and g ~= sub and g ~= hpp.focus then draw_main(g, 'main') end
     end
+    -- 1.0.7: no docked card this frame but monsters on the hate list: the list alone, in the dock's panel
+    local alone = I.dock_hate == true and I.dock ~= false and not HATE.drawn and not DOCK.on and hate_count(1) > 0
+    if alone ~= HATE.was then HATE.t0 = now; HATE.was = alone end
+    if alone then
+        local a = math.min(1, (now - HATE.t0) / DOCK_FADE)
+        local keep = HATE.keep or {}
+        HATE.keep = keep
+        keep[1], keep[2], keep[3], keep[4], keep[5], keep[6] = DOCK.rx0, DOCK.ry0, DOCK.rx1, DOCK.ry1, DOCK.ly0, DOCK.ly1
+        DOCK.rx0, DOCK.ry0, DOCK.rx1, DOCK.ry1, DOCK.ly0, DOCK.ly1 = -40, 0, 40, math.max(1, HATE.h), nil, nil
+        local P = HATE.pos or {}
+        HATE.pos = P
+        dock_place(P)
+        local B, p = DOCK.box, DOCK.pad
+        pcall(PList.panel, dl, B[1], B[2], B[3], B[4], a)
+        HATE.h = hate_draw(dl, I, B[1] + p, B[2] + p, math.max(1, (B[3] - B[1]) - 2 * p), a, now)
+        DOCK.on = true                      -- RecastXI keeps above it, like above the docked card
+        DOCK.rx0, DOCK.ry0, DOCK.rx1, DOCK.ry1, DOCK.ly0, DOCK.ly1 = keep[1], keep[2], keep[3], keep[4], keep[5], keep[6]
+    end
 end
 
 -- Asks the server for the check (2.7.1: always on). 2.10.0: once per individual monster (server id), again after
@@ -1454,15 +1724,13 @@ Info.now = function () return hpp.clock() end
 -- 2.13.1: a check with no reply is sent again after CHECK_WAIT[n] s (n = tries so far), up to #CHECK_WAIT + 1 sends;
 -- targeting the monster again after that starts a new round. Never two sends closer than CHECK_GAP s.
 -- 2.13.2: the timing: 0.1, 0.2, 0.3, 1, 3, 8 s. The replies to these checks are kept out of the chat log.
-hpp.CHECK_WAIT, hpp.CHECK_GAP = { 0.1, 0.2, 0.3, 1.0, 3.0, 8.0 }, 0.1
+-- 1.0.5 (Joshua): sent at once, then after 0.05 and 0.05 s, then no more (3 sends in all).
+hpp.CHECK_WAIT, hpp.CHECK_GAP = { 0.05, 0.05 }, 0.05
 hpp.CHECK_TRIES = #hpp.CHECK_WAIT + 1
 local function check_dbg(fmt, ...) if hpp.check_dbg then msg(('Check debug: ' .. fmt):format(...)) end end
-function hpp.auto_check(now)
-    local I = hpp.s.info
-    if hpp.st.main ~= hpp.ac_main then hpp.ac_main = hpp.st.main; hpp.target_sel = (hpp.target_sel or 0) + 1 end
-    if not (I.enabled and I.auto_check) or hpp.st.main == 0 then return end
-    if hpp.ui_hidden or hpp.in_event then return end          -- the server ignores /check during events
-    local idx = hpp.st.main
+-- One automatic /check for idx when it is due (no reply yet, tries left, waits kept). sel = the selection counter
+-- (a new round after the tries ran out once you pick it again); how = 'main' (/check <t>) or 'sub' (the check packet).
+local function check_one(idx, now, sel, selkey, how)
     local e = get_entity()
     if e == nil or not is_monster(idx) or (e:GetHPPercent(idx) or 0) <= 0 then return end
     local name = e:GetName(idx)
@@ -1472,113 +1740,96 @@ function hpp.auto_check(now)
     local c = Info.get(idx, name)
     if c ~= nil and (c.diff ~= nil or c.level ~= nil or c.eva ~= nil) then return end
     local t = Info.tried[sid]
-    if type(t) ~= 'table' or now - t.t > Info.KEEP then t = { t = -100, n = 0, sel = -1 }; Info.tried[sid] = t end
+    if type(t) ~= 'table' or now - t.t > Info.KEEP then t = { t = -100, n = 0 }; Info.tried[sid] = t end
     -- a new round when you target it again after the tries ran out (it is a new choice of yours, not a loop)
-    if t.sel ~= hpp.target_sel then
+    if t[selkey] ~= sel then
         if t.n >= hpp.CHECK_TRIES then t.n = 0 end
-        t.sel = hpp.target_sel
+        t[selkey] = sel
     end
     if t.n >= hpp.CHECK_TRIES then return end
-    if t.n > 0 and now - t.t < (hpp.CHECK_WAIT[t.n] or 8) then return end
-    if now - (hpp.check_at or -100) < hpp.CHECK_GAP then return end
+    if t.n > 0 and now - t.t < (hpp.CHECK_WAIT[t.n] or 8) - 1e-6 then return end
+    if now - (hpp.check_at or -100) < hpp.CHECK_GAP - 1e-6 then return end
     t.t, t.n, hpp.check_at = now, t.n + 1, now
-    check_dbg('sending /check to %s (index %d), try %d of %d', name, idx, t.n, hpp.CHECK_TRIES)
-    hpp.ac_queued = (hpp.ac_queued or 0) + 1        -- the command event tells these from a /check you type
-    AshitaCore:GetChatManager():QueueCommand(-1, '/check <t>')
+    hpp.check_last = idx
+    check_dbg('sending /check to %s (index %d, %s), try %d of %d', name, idx, how, t.n, hpp.CHECK_TRIES)
+    if how == 'sub' then
+        -- 1.0.6: the sub-target: the packet /check itself sends (0x00DD: server id, index, kind 0 = check), since
+        -- /check <st> would open a target cursor of its own
+        AshitaCore:GetPacketManager():AddOutgoingPacket(0xDD, { 0xDD, 0x08, 0x00, 0x00,
+            sid % 256, math.floor(sid / 256) % 256, math.floor(sid / 65536) % 256, math.floor(sid / 16777216) % 256,
+            idx % 256, math.floor(idx / 256) % 256, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })
+    else
+        hpp.ac_queued = (hpp.ac_queued or 0) + 1        -- the command event tells these from a /check you type
+        AshitaCore:GetChatManager():QueueCommand(-1, '/check <t>')
+    end
+end
+hpp.check_one = check_one
+
+function hpp.auto_check(now)
+    local I = hpp.s.info
+    if hpp.st.main ~= hpp.ac_main then hpp.ac_main = hpp.st.main; hpp.target_sel = (hpp.target_sel or 0) + 1 end
+    if hpp.st.sub ~= hpp.ac_sub then hpp.ac_sub = hpp.st.sub; hpp.sub_sel = (hpp.sub_sel or 0) + 1 end
+    if not (I.enabled and I.auto_check) then return end
+    if hpp.ui_hidden or hpp.in_event then return end          -- the server ignores /check during events
+    if hpp.st.main ~= 0 then check_one(hpp.st.main, now, hpp.target_sel, 'sel', 'main') end
+    -- 1.0.6: the sub-target cursor's monster too (its card shows the check like the main one)
+    local sub = hpp.st.sub or 0
+    if sub ~= 0 and sub ~= hpp.st.main and I.show_sub ~= false then check_one(sub, now, hpp.sub_sel, 'ssel', 'sub') end
 end
 
 -- 2.13.4: the icons over a player's name: linkshell pearl (its color) and the game's name icons, in the game's order.
 -- info_d.badges[i] = { t = text or nil (pearl), c = color }; badge_n = how many; badge_px = their height.
+-- 1.0.4: each name icon is a picture in icons\badges\ (f = its file); the label pill (t, c) is only the fallback
+-- when the picture is missing. lfm (Flags3 bit 1) is level sync (it was shown as INV).
 local BADGE = {
     ls     = { 0, 0, 0, 1 },                                             -- color set per player
-    lfp    = { t = 'LFP',  c = { 0.30, 0.60, 1.00, 1 } },               -- seeking a party (Flags1 bit 11)
-    lfm    = { t = 'INV',  c = { 0.25, 0.75, 0.95, 1 } },               -- taking party requests (Flags3 bit 1)
-    anon   = { t = 'ANON', c = { 0.62, 0.45, 0.85, 1 } },               -- /anon (bit 12)
-    away   = { t = 'AWAY', c = { 0.55, 0.55, 0.60, 1 } },               -- /away (bit 14)
-    bazaar = { t = 'BAZ',  c = { 0.95, 0.75, 0.20, 1 } },               -- bazaar open (bit 31)
-    mentor = { t = 'MNT',  c = { 0.35, 0.80, 0.45, 1 } },               -- mentor (Flags3 bit 24)
-    new    = { t = 'NEW',  c = { 0.60, 0.90, 0.35, 1 } },               -- new adventurer (Flags3 bit 23)
-    dead   = { t = 'DC',   c = { 0.85, 0.30, 0.30, 1 } },               -- link dead (bit 18)
-    gm     = { t = 'GM',   c = { 1.00, 0.35, 0.55, 1 } },               -- GM level (bits 24-26)
+    lfp    = { t = 'LFP',  f = 'lfp.png',    c = { 0.30, 0.60, 1.00, 1 } },   -- seeking a party (Flags1 bit 11)
+    lfm    = { t = 'SYNC', f = 'sync.png',   c = { 0.25, 0.75, 0.95, 1 } },   -- level sync (Flags3 bit 1)
+    anon   = { t = 'ANON', f = 'anon.png',   c = { 0.62, 0.45, 0.85, 1 } },   -- /anon (bit 12)
+    away   = { t = 'AWAY', f = 'away.png',   c = { 0.55, 0.55, 0.60, 1 } },   -- /away (bit 14)
+    bazaar = { t = 'BAZ',  f = 'bazaar.png', c = { 0.95, 0.75, 0.20, 1 } },   -- bazaar open (bit 31)
+    mentor = { t = 'MNT',  f = 'mentor.png', c = { 0.35, 0.80, 0.45, 1 } },   -- mentor (Flags3 bit 24)
+    new    = { t = 'NEW',  f = 'new.png',    c = { 0.60, 0.90, 0.35, 1 } },   -- new adventurer (Flags3 bit 23)
+    dead   = { t = 'DC',   f = 'dc.png',     c = { 0.85, 0.30, 0.30, 1 } },   -- link dead (bit 18)
+    gm     = { t = 'GM',   f = 'gm.png',     c = { 1.00, 0.35, 0.55, 1 } },   -- GM level (bits 24-26)
 }
 hpp.BADGE = BADGE
 local function bitset(v, b) return math.floor(v / 2 ^ b) % 2 == 1 end
+-- 1.0.4: in the game's order of importance (link dead, away, GM, seeking party / level sync, new adventurer / mentor,
+-- bazaar; /anon has no game icon and comes last), then the pearl, nearest the name. K.badge_one: only the most
+-- important icon (the pearl stays), the way the game shows one.
 function hpp.name_badges(e, idx, d, K)
     local list = d.badges
     if list == nil then list = {}; d.badges = list end
     local n = 0
-    local function add(b, col) n = n + 1; local x = list[n]; if x == nil then x = {}; list[n] = x end; x.t, x.c = b.t, col or b.c end
+    local one = K.badge_one == true
+    local function add(b, col)
+        if one and n > 0 then return end
+        n = n + 1; local x = list[n]; if x == nil then x = {}; list[n] = x end; x.t, x.c, x.f = b.t, col or b.c, b.f
+    end
     local lc = tonumber(e:GetLinkshellColor(idx)) or 0                   -- BGR, alpha ignored; 0 = no linkshell
     local f = hpp.pc_flags[idx]
     local sid = e:GetServerId(idx) or 0
     if f ~= nil and f.sid ~= sid then f = nil end                         -- the index belongs to someone else now
+    if f ~= nil then
+        local f1, f3 = f.f1, f.f3
+        if bitset(f1, 18) then add(BADGE.dead) end
+        if bitset(f1, 14) then add(BADGE.away) end
+        if math.floor(f1 / 2 ^ 24) % 8 > 0 then add(BADGE.gm) end
+        if bitset(f1, 11) then add(BADGE.lfp) end
+        if bitset(f3, 1) then add(BADGE.lfm) end
+        if bitset(f3, 23) and K.badge_new ~= false then add(BADGE.new) end
+        if bitset(f3, 24) then add(BADGE.mentor) end
+        if bitset(f1, 31) then add(BADGE.bazaar) end
+        if bitset(f1, 12) then add(BADGE.anon) end
+    end
     if lc % 16777216 ~= 0 and (f == nil or bitset(f.f1, 17)) then
         local c = BADGE.ls
         c[1], c[2], c[3] = (lc % 256) / 255, (math.floor(lc / 256) % 256) / 255, (math.floor(lc / 65536) % 256) / 255
+        one = false                                                       -- the pearl is always shown
         add({}, c)
     end
-    if f ~= nil then
-        local f1, f3 = f.f1, f.f3
-        if math.floor(f1 / 2 ^ 24) % 8 > 0 then add(BADGE.gm) end
-        if bitset(f1, 18) then add(BADGE.dead) end
-        if bitset(f1, 11) then add(BADGE.lfp) end
-        if bitset(f3, 1) then add(BADGE.lfm) end
-        if bitset(f1, 12) then add(BADGE.anon) end
-        if bitset(f1, 14) then add(BADGE.away) end
-        if bitset(f1, 31) then add(BADGE.bazaar) end
-        if bitset(f3, 24) then add(BADGE.mentor) end
-        if bitset(f3, 23) and K.badge_new ~= false then add(BADGE.new) end
-    end
-    d.badge_n, d.badge_px = n, tonumber(K.badge_size) or 16
-end
-
--- 2.13.2: whether the game shows names over characters. The game keeps it in its own settings (the ones the Ashita
--- config addon reads by number); the number is not documented, so the addon learns it: when you type /names it notes
--- every setting, looks again half a second later, and remembers the one that changed (info.names_cfg, with the value
--- that means "shown" in info.names_cfg_on). Until then it goes by the /names you typed (info.names_on).
-local GCFG = { get = nil, snap = nil, at = nil, arg = nil, v = nil, read_at = -1 }
-pcall(function ()
-    ffi.cdef('typedef int32_t (__cdecl* hpp_get_config_t)(int32_t);')
-    local p = amem.find(0, 0, '8B0D????????85C974??8B44240450E8????????C383C8FFC3', 0, 0)
-    if type(p) == 'number' and p ~= 0 then GCFG.get = ffi.cast('hpp_get_config_t', p) end
-end)
-hpp.GCFG = GCFG
-local function cfg_read(id)
-    local ok, v = pcall(GCFG.get, id)
-    return ok and tonumber(v) or nil
-end
-function hpp.names_learn(arg)
-    if GCFG.get == nil then return end
-    local t = {}
-    for i = 1, 207 do t[i] = cfg_read(i) end
-    GCFG.snap, GCFG.at, GCFG.arg = t, hpp.clock() + 0.5, arg
-end
-function hpp.names_tick(now)
-    if GCFG.snap == nil or now < GCFG.at then return end
-    local old, I = GCFG.snap, hpp.s.info
-    GCFG.snap = nil
-    for i = 1, 207 do
-        local v = cfg_read(i)
-        if v ~= nil and old[i] ~= nil and v ~= old[i] then
-            -- after /names off the old value meant "shown"; after on (or a switch to on) the new one does
-            I.names_cfg, I.names_cfg_on = i, (GCFG.arg == 'off') and old[i] or (I.names_on and v or old[i])
-            check_dbg('/names changed game setting %d (%d -> %d)', i, old[i], v)
-            GCFG.read_at = -1
-            hpp.changed()
-            return
-        end
-    end
-end
--- true while the game shows names over characters
-function hpp.names_shown()
-    local I = hpp.s.info
-    local id = tonumber(I.names_cfg)
-    if id ~= nil and id > 0 and GCFG.get ~= nil then
-        local now = hpp.clock()
-        if now - GCFG.read_at > 0.25 then GCFG.v, GCFG.read_at = cfg_read(id), now end    -- four times a second
-        if GCFG.v ~= nil then return GCFG.v == tonumber(I.names_cfg_on) end
-    end
-    return I.names_on == true
+    d.badge_n, d.badge_px, d.badge_gap = n, tonumber(K.badge_size) or 16, tonumber(K.badge_gap) or 6
 end
 
 hpp.WEAK_SAMPLE = { e = { -2, 5, 0, 0, 0, 0, 0, 0 }, p = { 0, -25, 25, 0, 0 }, s = { dark_sleep = 99, light_sleep = 99 } }
@@ -1824,6 +2075,7 @@ LR['invite.banner'] = { 5, 120 }; LR['invite.timeout'] = { 60, 1800 }; LR['invit
 LR['invite.dx'] = { -200, 200, true }; LR['invite.dy'] = { -200, 200, true }
 ENUMS['info.bar.comet'] = { off = true, once = true }
 ENUMS['info.dist.format'] = { short = true, long = true, plain = true, whole = true }
+for k in pairs({ name = 1, dist = 1, level = 1, check = 1, defev = 1 }) do ENUMS['info.dock_pos.' .. k .. '.align'] = { left = true, center = true, right = true } end   -- 1.0.6
 RANGES['info.dist.far_at'] = { 1, 60 }
 RANGES['buffer.window'] = { 0.1, 1.0 }
 RANGES['buffer.delay'] = { 0, 0.5 }
@@ -1852,6 +2104,11 @@ for _, k in ipairs({ 'mob', 'pc', 'npc' }) do
         end
         RANGES['info.kinds.' .. k .. '.off.pct.dx'] = { -200, 200, true }; RANGES['info.kinds.' .. k .. '.off.pct.dy'] = { -100, 100, true }
     end
+end
+RANGES['info.dock_hate_max'] = { 1, 20, true }   -- 1.0.7
+-- 1.0.5: the docked card's own place for each part
+for _, k in ipairs(hpp.DOCK_PARTS) do
+    RANGES['info.dock_pos.' .. k .. '.dx'] = { -4000, 4000, true }; RANGES['info.dock_pos.' .. k .. '.dy'] = { -4000, 4000, true }
 end
 -- 2.7.7: weakness icons
 RANGES['info.weak.size'] = { 10, 48, true }; RANGES['info.weak.spacing'] = { 0, 12, true }; RANGES['info.weak.per_row'] = { 1, 16, true }
@@ -2120,6 +2377,29 @@ function hpp.sanitize(s)
     -- quartermaster flag bits use the defaults (their settings were removed).
     local I = s.info
     I.name.show, I.bar.show, I.dist.show, I.fx.enabled, I.hide_in_events = true, true, true, true, true
+    -- 1.0.5: "Docked: only name, health and distance" off becomes the docked card's level, check, defense / evasion,
+    -- weaknesses and monster info switches on; the /names switch is gone
+    if I.dock_simple ~= nil then
+        if I.dock_simple == false then
+            I.dock_level, I.dock_check, I.dock_defev, I.dock_weak, I.dock_mob = true, true, true, true, true
+        end
+        I.dock_simple = nil
+    end
+    I.names_on, I.names_cfg, I.names_cfg_on = nil, nil, nil
+    I.dock_w_on, I.dock_w = nil, nil          -- 1.0.7: the own-width option was taken out again
+    -- 1.0.5: the docked card's positions start from the enemies' (the card looks as before until moved)
+    if type(I.dock_pos) ~= 'table' then I.dock_pos = {} end
+    local DP = I.dock_pos
+    for _, k in ipairs(hpp.DOCK_PARTS) do
+        local src = (k == 'pct') and { dx = I.bar.pct_dx, dy = I.bar.pct_dy } or I[k]
+        if type(DP[k]) ~= 'table' then DP[k] = {} end
+        if DP.init ~= true or tonumber(DP[k].dx) == nil then DP[k].dx = tonumber(src and src.dx) or 0 end
+        if DP.init ~= true or tonumber(DP[k].dy) == nil then DP[k].dy = tonumber(src and src.dy) or 0 end
+        local al = hpp.DOCK_ALIGN[k]          -- 1.0.6: the text parts' justify
+        if al ~= nil and not (DP[k].align == 'left' or DP[k].align == 'center' or DP[k].align == 'right') then DP[k].align = al end
+    end
+    DP.init = true
+    for _, K in pairs(I.kinds or {}) do if type(K) == 'table' then K.name_names = nil end end
     local R, RD = L.roles, defaults.list.roles
     R.leader_mask, R.aleader_mask, R.qm_mask = RD.leader_mask, RD.aleader_mask, RD.qm_mask
     if #fixed > 0 then
@@ -2278,7 +2558,7 @@ function hpp.frame()
         if need_arrows or preview or hpp.s.list.enabled or hpp.s.info.enabled or over.enabled then guard('camera', prepare_view, now, t) end
         if need_arrows then guard('arrows', hpp.draw_arrows, now) end
         if hpp.s.info.enabled or hpp.s.list.enabled or hpp.list_test then guard('fonts', Fonts.update, hpp.s.info) end
-        if hpp.s.info.enabled then guard('enemy info', hpp.draw_info, now); guard('auto check', hpp.auto_check, now); guard('names', hpp.names_tick, now) end
+        if hpp.s.info.enabled then guard('enemy info', hpp.draw_info, now); guard('auto check', hpp.auto_check, now) end
         if over.enabled and not (hpp.ui_hidden or hpp.in_event) and (hpp.list_test or hpp.party_in_battle(now)) then guard('health bars over members', hpp.draw_over, now) end
         if preview then guard('preview', hpp.draw_preview, now) end
         Fonts.unwind()      -- a draw error must not leave a font pushed
@@ -2732,16 +3012,6 @@ ashita.events.register('command', 'partyramaxi_command', function (e)
         if (hpp.ac_queued or 0) > 0 and e.command:lower() == '/check <t>' then hpp.ac_queued = hpp.ac_queued - 1
         elseif inj ~= true then hpp.user_check_at = hpp.clock() end
     end
-    -- 2.12.0: follow the game's /names (on / off / toggle) so the target bar can leave out names the game already shows
-    -- 2.13.2: and learn which of the game's settings it changes, to read it from then on (hpp.names_shown)
-    if c == '/names' and hpp.s then
-        local a = (args[2] or ''):lower()
-        if (tonumber(hpp.s.info.names_cfg) or 0) > 0 then hpp.s.info.names_on = hpp.names_shown() end     -- the game's own state
-        if a == 'on' then hpp.s.info.names_on = true elseif a == 'off' then hpp.s.info.names_on = false
-        else hpp.s.info.names_on = not hpp.s.info.names_on end
-        hpp.names_learn(a)
-        hpp.changed()
-    end
     if c == '/pxi' or c == '/partyramaxi' or c == '/hpp' then
         e.blocked = true
         hpp.command(args)
@@ -2768,6 +3038,13 @@ ashita.events.register('packet_in', 'partyramaxi_packet_in', function (e)
     end
 end)
 
+-- 1.0.4: true when a check reply for this monster answers one of the automatic checks (not a /check you typed):
+-- its packet and, should a line still reach the chat, that line are kept out of the log.
+function hpp.auto_reply(idx, now)
+    local t = Info.tried[get_entity():GetServerId(idx) or 0]
+    return type(t) == 'table' and t.n > 0 and now - t.t < 12 and now - (hpp.user_check_at or -100) > 3
+end
+
 -- Packet readers. Named functions (not closures made per packet): these run for every packet of the type.
 local PBYTES
 local function u16(o) return PBYTES[o] + PBYTES[o + 1] * 256 end
@@ -2786,8 +3063,7 @@ local function read_check(e)
     local now = hpp.clock()
     Info.set(tidx, name, level, nil, nil, diff, now, eva, def)
     -- 2.13.2: the reply to an automatic /check stays out of the chat log; one you typed yourself still shows
-    local t = Info.tried[get_entity():GetServerId(tidx) or 0]
-    if type(t) == 'table' and t.n > 0 and now - t.t < 12 and now - (hpp.user_check_at or -100) > 3 then e.blocked = true end
+    if hpp.auto_reply(tidx, now) then e.blocked = true end
     if hpp.check_dbg then
         local sid = get_entity():GetServerId(tidx) or 0
         local t = Info.tried[sid]
@@ -2874,9 +3150,23 @@ local function note_mob_target(e)
     v[1], v[2] = target, hpp.clock()
 end
 
+-- 1.0.7: the hate list: a monster acting on a party member, or a party member acting on a monster (first target)
+local function note_hate(e)
+    local bits = ashita.bits.unpack_be
+    local d = e.data_raw
+    local actor, count, cat = bits(d, 0, 40, 32), bits(d, 0, 72, 6), bits(d, 0, 82, 4)
+    if count < 1 or cat == 0 then return end
+    local target = bits(d, 0, 150, 32)
+    if target == actor or target == 0 then return end
+    local MS = hpp.hate.ms
+    if actor >= 0x1000000 and MS[target] then hpp.hate.seen[actor] = hpp.clock()          -- a monster on a member
+    elseif MS[actor] and target >= 0x1000000 then hpp.hate.seen[target] = hpp.clock() end -- a member on a monster
+end
+
 ashita.events.register('packet_in', 'partyramaxi_packets', function (e)
     local id = e.id
     if id ~= 0x0028 and id ~= 0x0029 then return end
+    if id == 0x0028 and hpp.s and hpp.s.info.dock_hate == true then pcall(note_hate, e) end
     if id == 0x0028 and hpp.s and hpp.s.info.enabled then pcall(track_focus, e) end
     if id == 0x0028 and hpp.s and hpp.s.list.over.enabled then pcall(note_mob_target, e) end
     local s = hpp.s
@@ -2898,8 +3188,29 @@ end)
 -- see LandSandBoat char_update.cpp / XiPackets 0x000D). The linkshell color is read from the entity itself.
 hpp.pc_flags = {}
 local function u32at(p, o) return p[o] + p[o + 1] * 256 + p[o + 2] * 65536 + p[o + 3] * 16777216 end
+-- 1.0.4: your own character's come in packet 0x0037 instead (layout: +0x24 server id, +0x28 Flags0, +0x2C Flags1,
+-- +0x38 Flags3; LandSandBoat char_status.cpp / XiPackets 0x0037), with other bits: they are moved to 0x000D's places.
+local function bitv(v, b) return math.floor(v / 2 ^ b) % 2 end
+function hpp.own_flags(p)
+    local f0, f1, f3 = u32at(p, 0x28), u32at(p, 0x2C), u32at(p, 0x38)
+    local o1 = bitv(f0, 4) * 2 ^ 11 + bitv(f0, 5) * 2 ^ 12 + bitv(f0, 7) * 2 ^ 14 + bitv(f0, 25) * 2 ^ 17
+             + bitv(f0, 26) * 2 ^ 18 + (math.floor(f0 / 2 ^ 29) % 8) * 2 ^ 24 + bitv(f1, 29) * 2 ^ 31
+    local o3 = bitv(f3, 0) * 2 + bitv(f3, 3) * 2 ^ 23 + bitv(f3, 4) * 2 ^ 24
+    return o1, o3, u32at(p, 0x24)
+end
 ashita.events.register('packet_in', 'partyramaxi_pc_flags', function (e)
     if e.id == 0x000A then hpp.pc_flags = {}; return end
+    if e.id == 0x0037 then
+        pcall(function ()
+            local party = get_party()
+            local idx = party and party:GetMemberTargetIndex(0) or 0
+            if idx == 0 then return end
+            local f = hpp.pc_flags[idx]
+            if f == nil then f = {}; hpp.pc_flags[idx] = f end
+            f.f1, f.f3, f.sid = hpp.own_flags(ffi.cast('uint8_t*', e.data_raw))
+        end)
+        return
+    end
     if e.id ~= 0x000D then return end
     pcall(function ()
         local p = ffi.cast('uint8_t*', e.data_raw)
@@ -2940,22 +3251,40 @@ ashita.events.register('text_in', 'partyramaxi_check_text', function (e)
     if not hpp.s or not hpp.s.info.enabled or type(e.message) ~= 'string' then return end
     -- Runs for every chat line: skip at once unless the line has a word a check reply has.
     local m = e.message
+    if m:find('Check debug', 1, true) then return end          -- 1.0.4: not our own debug lines
     if not (m:find('rey', 1, true) or m:find('ough', 1, true) or m:find('atch', 1, true) or m:find('eak', 1, true)
         or m:find('allenge', 1, true) or m:find('Lv', 1, true) or m:find('evel', 1, true)
-        or m:find('vasion', 1, true) or m:find('efense', 1, true)) then return end
+        or m:find('vasion', 1, true) or m:find('efense', 1, true) or m:find('gauge', 1, true)) then return end
     pcall(function ()
+        -- 1.0.6: the main target or the sub-target (whose check came last first, then the one named in the line)
         local idx = hpp.st.main ~= 0 and hpp.st.main or hpp.st.sub
+        local last = hpp.check_last or 0
+        if last ~= 0 and (last == hpp.st.main or last == hpp.st.sub) then idx = last end
+        local ent = get_entity()
+        if idx ~= 0 and hpp.st.sub ~= 0 and hpp.st.sub ~= idx and is_monster(hpp.st.sub) then
+            local nm = ent:GetName(idx)
+            local ns = ent:GetName(hpp.st.sub)
+            local l = m:lower()
+            if type(nm) == 'string' and type(ns) == 'string' and not l:find(nm:lower(), 1, true) and l:find(ns:lower(), 1, true) then idx = hpp.st.sub end
+        end
         if idx == 0 or not is_monster(idx) then return end
-        local name = get_entity():GetName(idx)
+        local name = ent:GetName(idx)
         local now = hpp.clock()
-        if Info.parse_defev(e.message, idx, name, now) and hpp.check_dbg then
+        local dv = Info.parse_defev(e.message, idx, name, now)
+        if dv and hpp.check_dbg then
             local c = Info.get(idx, name)
             msg(('Check debug: chat line understood -> evasion %s, defense %s'):format(tostring(c and c.eva), tostring(c and c.def)))
         end
-        if Info.parse_text(e.message, name, idx, now) and hpp.check_dbg then
+        local tx = Info.parse_text(e.message, name, idx, now)
+        if tx and hpp.check_dbg then
             local c = Info.get(idx, name)
             msg(('Check debug: chat line understood -> level %s, range %s, difficulty %s'):format(
                 tostring(c and c.level), c and c.lo and (c.lo .. '-' .. c.hi) or 'none', tostring(c and c.diff and Info.DIFF[c.diff].short)))
+        end
+        -- 1.0.4: a reply line to an automatic check that still reached the chat is hidden too
+        if (dv or tx) and hpp.auto_reply(idx, now) then
+            e.blocked = true
+            if hpp.check_dbg then msg('Check debug: that chat line was hidden (automatic check)') end
         end
     end)
 end)

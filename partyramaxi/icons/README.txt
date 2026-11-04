@@ -21,6 +21,7 @@ Every picture PartyramaXI uses lives in this folder. After adding files, press R
   weak\             Target bar weakness icons for damage types: Slashing, Piercing, Blunt, H2H, Magic (.png). Glossy set; the flat set is in weak\flat\, the jewel set in weak\jewel\.
   mob\              Target bar monster info badges: NM, Aggro, Link, TrueSight, Sight, Sound, Scent, Magic, LowHP, Ability, Charm (.png). Glossy set; the flat set is in mob\flat\, the jewel set in mob\jewel\.
   categories\       RecastXI: magic type icons (healing.png, enfeebling.png ...), glossy; the flat originals are in categories\flat\, the jewel set in categories\jewel\.
+  badges\           Target bar > Players: the name icons left of a player's name: lfp, sync, anon, away, bazaar, mentor, new, dc, gm (.png).
   crests\           RecastXI: header crests (default.png, or <job>.png).
   fx\               RecastXI: header pattern tiles for its themes.
   generic.png       RecastXI: the last fallback icon.

@@ -130,7 +130,7 @@ M.KEYS = {
     list    = { { 'Theme', { 'Appearance' }, 'pl_theme', 'g_pl_theme' }, { 'Card width', { 'Appearance' }, 'plz_w', 'pl_cards' },
                 { 'List font', { 'Text' }, 'plf_base', 'plt_shared' }, { 'Lock position', { 'General' }, 'pl_lock', 'g_pl_gap' },
                 { 'Show alliance', { 'Alliance' }, 'pl_ally', 'pla_show' } },
-    enemy   = { { 'Show bar for', { 'General' }, 'info_k_mob', 'g_inf_who' }, { 'Docked card', { 'General' }, 'info_dock', 'g_inf_dock' },
+    enemy   = { { 'Show bar for', { 'General' }, 'info_k_mob', 'g_inf_who' }, { 'Docked', { 'General' }, 'info_dock', 'g_inf_dock' },
                 { 'Fade in', { 'General' }, 'info_fade_in', 'g_inf_fade' } },
     recast  = { { 'Where', { 'General' }, 'rx_attach', 'g_rx_place' }, { 'Hide when not in battle', { 'General' }, 'hide_no_combat', 'sec_show' },
                 { 'When nothing is on recast', { 'General' }, 'When nothing is on recast:', 'sec_show' },
@@ -752,7 +752,7 @@ end
 local sub_head = M.sub_head
 
 -- Target bar tests: a sample of one kind of target until pressed again (or the window closes).
-local SAMPLE_HELP = 'Shows a sample over your character (or the middle of the screen, or at its fixed spot) until you press this again or close this window.'
+local SAMPLE_HELP = 'Shows a sample over your character (or the middle of the screen, or at its pinned spot) until you press this again or close this window.'
 local function testing(kind) return hpp.preview_hold == true and (hpp.preview_kind or 'mob') == kind end
 local function test_toggle(kind)
     if testing(kind) then hpp.preview_hold = false else hpp.preview_hold, hpp.preview_kind = true, kind end
@@ -767,6 +767,35 @@ local function any_kind(I, el)
     end
     return false
 end
+-- 1.0.6: a group's own description, wrapped, in the quiet text color
+local function explain(text)
+    if SEARCHING then return end
+    local imgui = real_imgui
+    if imgui.PushTextWrapPos then imgui.PushTextWrapPos(0) end
+    imgui.PushStyleColor(ImGuiCol_Text, { 0.62, 0.66, 0.75, 1 })
+    imgui.TextWrapped(text)
+    imgui.PopStyleColor()
+    if imgui.PopTextWrapPos then imgui.PopTextWrapPos() end
+end
+-- 1.0.6 (Joshua): Pinned = a kind's bar moved off the target to a spot of the screen you choose (draggable)
+local function pinned_spot(I, kind, label)
+    local K = I.kinds[kind]
+    checkbox(label .. '##info_k_abs_' .. kind, K, 'abs', 'The bar for ' .. KIND_NAME[kind] .. ' leaves the target and stays at one spot on the screen. This turns Floating off for them (no bar over the target, no glide in battle). While this window is open a sample shows at the spot with a handle under it: drag the handle to move it.')
+    if K.abs and (tonumber(K.ax) or 0) == 0 and (tonumber(K.ay) or 0) == 0 then
+        K.ax = math.floor((hpp.disp_w and hpp.disp_w > 0 and hpp.disp_w or 1280) * (kind == 'mob' and 0.5 or (kind == 'pc' and 0.3 or 0.7)))
+        K.ay = math.floor((hpp.disp_h and hpp.disp_h > 0 and hpp.disp_h or 720) * 0.25)
+        changed()
+    end
+    if K.abs and not SEARCHING then
+        real_imgui.TextColored({ 1.00, 0.78, 0.35, 1 }, 'Floating is off for ' .. KIND_NAME[kind] .. ': their bar sits at this spot.')
+    end
+    if real_imgui.Indent and not SEARCHING then real_imgui.Indent(18) end
+    when(K.abs, function ()
+        slider_int('Spot: left / right##info_k_ax_' .. kind, K, 'ax', 0, math.max(1, math.floor(hpp.disp_w or 0) > 0 and math.floor(hpp.disp_w) or 4000), '%d px', 'Pixels from the left edge of the screen. Or drag the handle under the sample while this window is open.')
+        slider_int('Spot: top / bottom##info_k_ay_' .. kind, K, 'ay', 0, math.max(1, math.floor(hpp.disp_h or 0) > 0 and math.floor(hpp.disp_h) or 3000), '%d px', 'Pixels from the top edge of the screen.')
+    end)
+    if real_imgui.Unindent and not SEARCHING then real_imgui.Unindent(18) end
+end
 local HEV = { v = true }
 local function info_general(I)
     local K = I.kinds
@@ -775,10 +804,7 @@ local function info_general(I)
         imgui.SameLine(); checkbox('Enemies##info_k_mob', K.mob, 'enabled', 'Monsters (and anything you can fight). Same switch as the Enabled button in the Enemies tab, where its settings are.')
         imgui.SameLine(); checkbox('Other players##info_k_pc', K.pc, 'enabled', 'Player characters other than you. Same switch as the Enabled button in the Players tab, where its settings are.')
         imgui.SameLine(); checkbox('NPCs##info_k_npc', K.npc, 'enabled', 'Anything else you can target: NPCs, doors, ??? points, trusts... Same switch as the Enabled button in the NPCs tab, where its settings are.')
-        checkbox('Also for the sub-target cursor##info_sub', I, 'show_sub')
-        when(I.show_sub ~= false, function ()
-            slider_int('Space between target cards##info_apart', I, 'apart', 0, 100, '%d px', 'When the sub-target\'s card would overlap your target\'s card, it moves up or down out of the way, keeping this much space between them.')
-        end)
+        checkbox('Also for the sub-target cursor##info_sub', I, 'show_sub', 'A card for the monster, player or NPC the sub-target cursor is on (spells, abilities, /check <st>...). A monster there is /checked too.')
         -- 2.13.0: one switch for every kind; each kind's tab keeps its own for exceptions
         local all = K.mob.hide_events ~= false and K.pc.hide_events ~= false and K.npc.hide_events ~= false
         HEV.v = all
@@ -793,28 +819,80 @@ local function info_general(I)
             'Which one being in battle starts the battle fade and glide. Each element has its own "Fade out in battle" switch.')
         slider_float('Start after##info_fade_delay', I, 'fade_delay', 0, 30, '%.1f s', 'Seconds in battle before the fade and glide start. The way back waits the same time after the fight ends.')
     end
-    -- 2.13.0: the dock has its own group
-    if group('Docked card (off screen)##g_inf_dock', 'info', '*', true) then
-        checkbox('Off the screen: dock above the party list##info_dock', I, 'dock', 'When your target is off the screen (enemy, player or NPC), its bar fades in above the party list, in a panel as wide as the list with its background and border. RecastXI, when attached, slides up above it. 20 px apart.')
-        when(I.dock ~= false, function ()
-            checkbox('Docked: only name, health and distance##info_dock_simple', I, 'dock_simple', 'The docked card shows just the name, the health bar and the distance: no level, check, defense / evasion, weaknesses or monster info, and effects only when "Effects like the party list" is on. Off: it shows everything the bar shows over the target.')
-            checkbox('Effects like the party list##info_dock_fx', I, 'dock_fx', 'The effects on the docked target show in rows under its card, drawn like the party list\'s status icons: the same countdown look, sort, pins (Show / Hide) and flash, set in Party List > Icons. They wrap at the card\'s width, so every icon stays inside it. Off: the docked card follows the Target bar\'s own effect icons (none while "only name, health and distance" is on).')
-            when(I.dock_fx ~= false, function ()
-                slider_int('Card icon size##info_dock_fx_size', I, 'dock_fx_size', 12, 72, '%d px', 'The size of the effect icons on the docked card, apart from the party list\'s. More fit in a row when smaller.')
-                checkbox('Countdown on the card icons##info_dock_fx_timers', I, 'dock_fx_timers', 'A countdown on each effect icon of the docked card, apart from the party list\'s switch. Its look (ring, bar or number) follows Party List > Icons.')
-            end)
-            checkbox('Pin it there for the current target##info_dock_pin', I, 'dock_pin', 'Your current target always shows in the panel above the party list, on the screen or not, instead of over its head. The sub-target is not pinned; a kind of target set to a fixed spot keeps that spot.')
-            when(I.dock_pin == true, function ()
-                checkbox('Keep the bar over the target too##info_dock_float', I, 'dock_float', 'Pinned: the bar still shows over your target as well, so you see both. Off: the pinned card replaces it.')
-            end)
+    -- 1.0.6 (Joshua): where the bar shows, in three groups: Floating (over the target), Pinned, Docked (above the list)
+    if group('Floating: over the target##g_inf_float', 'info', '*', true) then
+        explain('The bar by your target\'s pointer, following it on the screen. Where each part sits is set per kind in the Enemies, Players and NPCs tabs (Where each part sits). A kind that is Pinned (below) does not float.')
+        when(I.show_sub ~= false, function ()
+            slider_int('Space between target cards##info_apart', I, 'apart', 0, 100, '%d px', 'When the sub-target\'s card would overlap your target\'s card, it moves up or down out of the way, keeping this much space between them.')
         end)
-    end
-    if group('Glide in battle##g_inf_glide', 'info', '*', true) then
-        slider_int('In battle: left / right##info_glide_x', I, 'glide_x', -2000, 2000, '%d px', 'In battle every element of the main target eases this far left (-) / right (+), and back when the battle ends. 0 = no glide. Not for a kind of target on a fixed spot.')
+        heading('Glide in battle##h_inf_glide')
+        slider_int('In battle: left / right##info_glide_x', I, 'glide_x', -2000, 2000, '%d px', 'In battle every element of the main target eases this far left (-) / right (+), and back when the battle ends. 0 = no glide. Not for a pinned kind, nor on the docked card.')
         slider_int('In battle: down / up##info_glide_y', I, 'glide_y', -2000, 2000, '%d px', 'Same, down (-) / up (+). The sub-target never glides.', true)
         when((tonumber(I.glide_x) or 0) ~= 0 or (tonumber(I.glide_y) or 0) ~= 0, function ()
             slider_float('Glide takes##info_fade_time', I, 'fade_time', 0.1, 2.5, '%.1f s', 'How long the glide to the battle spot (and back) takes.')
             dropdown('Glide motion##info_glide_ease', I, 'glide_ease', Info.EASE_LIST, Info.EASE_LABELS, 'How the glide moves. The way back uses the same motion.')
+        end)
+    end
+    if group('Pinned: a spot on the screen##g_inf_pin', 'info', '*', true) then
+        explain('Moves the bar off the target to a spot on the screen you choose, for each kind of target. Pinning turns Floating off for that kind: its bar stays at the spot instead of over the target. When the target is off the screen it still docks above the party list (Docked). While this window is open a sample shows at each pinned spot with a handle under it: drag it to move the spot.')
+        pinned_spot(I, 'mob', 'Pin enemies\' bar')
+        pinned_spot(I, 'pc', 'Pin other players\' bar')
+        pinned_spot(I, 'npc', 'Pin NPCs\' bar')
+    end
+    if group('Docked: above the party list##g_inf_dock', 'info', '*', true) then
+        explain('When your target is off the screen (or always, if you choose), its card sits above the party list in a panel as wide as the list, with its background and border; RecastXI, when attached, slides up above it. The card stays in one place and size whatever the target is, and its parts, places and effects are its own, set here.')
+        checkbox('Dock when the target is off the screen##info_dock', I, 'dock', 'When your target is off the screen (enemy, player or NPC), its bar fades in above the party list, 20 px above it. Off: nothing shows for a target off the screen.')
+        when(I.dock ~= false, function ()
+            checkbox('Always dock the current target##info_dock_pin', I, 'dock_pin', 'Your current target always shows on the docked card, on the screen or not, instead of floating over its head. The sub-target is not docked this way. A pinned kind docks too; "Keep the floating bar too" then keeps it at its spot as well.')
+            when(I.dock_pin == true, checkbox, 'Keep the floating bar too##info_dock_float', I, 'dock_float', 'With "Always dock the current target" on, the bar still floats over your target as well, so you see both. Off: the docked card replaces it.')
+            -- 1.0.5 (Joshua): the docked card's own switch for each part, apart from the Enemies / Players / NPCs tabs
+            heading('Shown on the docked card##h_dock_show')
+            local DOCK_HELP = 'On the docked card only. The Enemies / Players / NPCs tabs decide the bar over the target.'
+            local P = I.dock_pos or {}
+            -- 1.0.5 (Joshua): each part switched on shows its own position sliders under it
+            local function part(label, key, pos, help)
+                checkbox(label .. '##info_dock_' .. key, I, 'dock_' .. key, (help and (help .. ' ') or '') .. DOCK_HELP)
+                local t = P[pos]
+                if I['dock_' .. key] == true or SEARCHING then
+                    if t then
+                        if imgui.Indent and not SEARCHING then imgui.Indent(18) end
+                        slider_int('Left / right##info_dp_' .. pos .. '_dx', t, 'dx', -2000, 2000, '%d px', 'Left (-) / right (+) on the docked card.' .. (pos == 'pct' and ' From the middle of the bar.' or ''))
+                        slider_int('Down / up##info_dp_' .. pos .. '_dy', t, 'dy', -2000, 2000, '%d px', 'Down (-) / up (+) on the docked card.', true)
+                        -- 1.0.6: text parts can be justified from their point
+                        if hpp.DOCK_ALIGN and hpp.DOCK_ALIGN[pos] then
+                            radio('Justify##info_dp_' .. pos .. '_al', t, 'align', { 'left', 'center', 'right' }, { left = 'Left', center = 'Center', right = 'Right' },
+                                'Which end of the text sits on its point: Left = it starts there and grows right, Center = centred on it, Right = it ends there. Left or Right keeps one edge still when the text changes length (a long or short name).')
+                        end
+                        if imgui.Unindent and not SEARCHING then imgui.Unindent(18) end
+                    end
+                end
+            end
+            part('Name', 'name', 'name')
+            when(I.dock_name ~= false, checkbox, 'Linkshell and name icons##info_dock_badges', I, 'dock_badges', 'Players: the linkshell pearl and the game\'s name icons left of the name (they move with the name; their look is set in Target bar > Players). ' .. DOCK_HELP)
+            part('Health bar', 'bar', 'bar')
+            when(I.dock_bar ~= false, part, 'Health %', 'pct', 'pct', 'The percent number on the health bar.')
+            part('Distance', 'dist', 'dist')
+            part('Level', 'level', 'level', 'Enemies: the level from /check (or the monster data).')
+            part('Check', 'check', 'check', 'Enemies: how tough it is (Easy prey, Tough...).')
+            part('Defense / evasion', 'defev', 'defev', 'Enemies: high / low defense and evasion from /check.')
+            part('Weaknesses', 'weak', 'weak', 'Enemies: the weakness icons (their look is set in Target bar > Enemies > Weaknesses).')
+            part('Monster info', 'mob', 'mob', 'Enemies: aggro, links, detection and the rest of the monster data (set in Target bar > Enemies > Monster info).')
+            checkbox('Effects##info_dock_fx', I, 'dock_fx', 'The effects on the docked target, drawn like the party list\'s status icons: the same countdown look, sort, pins (Show / Hide) and flash, set in Party List > Icons. Off: no effects on the docked card.')
+            when(I.dock_fx ~= false, function ()
+                if imgui.Indent and not SEARCHING then imgui.Indent(18) end
+                checkbox('Same settings as party members##info_dock_fx_list', I, 'dock_fx_list', 'On: the icons use the party list\'s own settings and place (Party List > Icons): its size, countdown, rows, and its position, so with "Fit to the card" off they sit off the card where the party members\' do. Off: they sit in the card under its content, wrapped to stay inside it, at the card\'s own size and countdown below.')
+                if imgui.Unindent and not SEARCHING then imgui.Unindent(18) end
+            end)
+            when(I.dock_fx ~= false and I.dock_fx_list ~= true, function ()
+                slider_int('Card icon size##info_dock_fx_size', I, 'dock_fx_size', 12, 72, '%d px', 'The size of the effect icons on the docked card, apart from the party list\'s. More fit in a row when smaller.')
+                checkbox('Countdown on the card icons##info_dock_fx_timers', I, 'dock_fx_timers', 'A countdown on each effect icon of the docked card, apart from the party list\'s switch. Its look (ring, bar or number) follows Party List > Icons.')
+            end)
+            -- 1.0.7 (Joshua): the party's hate list
+            heading('Hate list##h_dock_hate')
+            checkbox('Enemies fighting the party##info_dock_hate', I, 'dock_hate', 'Every monster with hate on your party or alliance gets a row on the docked card (name, distance, health): claimed by a member, fought by one, targeting one, or trading blows with one in the last 30 s, within 50 yalms. Rows keep the order they joined in. Your current target is on the card above, so it leaves the list while it is your target and comes back in its place when you target something else. Click a row to target that monster. With no docked card, the list shows above the party list on its own.')
+            when(I.dock_hate == true, function ()
+                slider_int('Rows at most##info_dock_hate_max', I, 'dock_hate_max', 1, 20, '%d', 'More monsters than this are left out (the newest ones).')
+            end)
         end)
     end
 end
@@ -843,6 +921,7 @@ local function info_text(I)
         local D = I.dist
         combo('Format##info_ds_fmt', D, 'format', Info.DIST_FORMATS, Info.DIST_LABELS)
         color('Color##info_ds_col', D, 'color')
+        checkbox('Fixed width##info_ds_pad', D, 'pad', 'The number sits in a slot as wide as "88.8y", right-aligned, so its digits and unit stay put as it changes and nothing next to it moves.')
         checkbox('Another color when far##info_ds_far', D, 'far', 'Beyond the distance below the number turns the far color (about 21 yalms is the usual spell range).')
         when(D.far, function ()
             imgui.SameLine(); color('##info_ds_fcol', D, 'far_color')
@@ -909,11 +988,11 @@ local function info_bar(I)
     when(any_kind(I, 'hp'), info_bar_body, I)
 end
 
--- One element's offsets from the tip (or from the fixed spot), with a reset.
+-- One element's offsets from the tip (or from the pinned spot), with a reset.
 local function el_offsets(t, id, label, dx, dy)
     heading(label)
-    slider_int('Left / right##info_o_' .. id .. '_dx', t, 'dx', -2000, 2000, '%d px', 'Left (-) / right (+) of the pointer tip (or the fixed spot).')
-    slider_int('Down / up##info_o_' .. id .. '_dy', t, 'dy', -2000, 2000, '%d px', 'Below (-) / above (+) the pointer tip (or the fixed spot).', true)
+    slider_int('Left / right##info_o_' .. id .. '_dx', t, 'dx', -2000, 2000, '%d px', 'Left (-) / right (+) of the pointer tip (or the pinned spot).')
+    slider_int('Down / up##info_o_' .. id .. '_dy', t, 'dy', -2000, 2000, '%d px', 'Below (-) / above (+) the pointer tip (or the pinned spot).', true)
     if imgui.Button('Reset position##info_o_' .. id .. '_r') then t.dx, t.dy = dx, dy; changed() end
 end
 
@@ -924,11 +1003,6 @@ local function kind_general(I, kind)
     if group('What it shows (on / off)##g_k_show_' .. kind, 'info', '*', true) then
         checkbox('Hide in cutscenes and when the UI is hidden##info_k_ev_' .. kind, K, 'hide_events')
         checkbox('Name##info_k_nm_' .. kind, K, 'name'); imgui.SameLine()
-        if not mob then
-            -- 2.12.0: the game's own names over characters (/names) make this one a repeat
-            when(K.name, checkbox, 'Not while /names is on##info_k_nn_' .. kind, K, 'name_names', 'Leaves the name out of the bar over the target while the game shows names over characters (/names). The docked card above the party list keeps the name. The addon reads the game\'s setting itself once you have typed /names one time.')
-            imgui.SameLine()
-        end
         checkbox('Health bar##info_k_hp_' .. kind, K, 'hp'); imgui.SameLine()
         checkbox('Distance##info_k_ds_' .. kind, K, 'dist'); imgui.SameLine()
         checkbox('Effect icons##info_k_fx_' .. kind, K, 'icons', mob and 'Spell effects on the monster, with a countdown (Icons tab).' or 'Effects the addon saw land on them (Icons tab).')
@@ -936,31 +1010,19 @@ local function kind_general(I, kind)
         if kind == 'pc' then checkbox('Also your own character##info_k_self', K, 'self', 'Shows the target bar when you target yourself.') end
         -- 2.13.4: the linkshell pearl and the game's name icons over the player's name
         if kind == 'pc' then
-            when(K.name, checkbox, 'Linkshell and name icons##info_k_badges', K, 'badges', 'Over the name: a pearl in the player\'s linkshell color, then the game\'s name icons as short labels: LFP (seeking a party), INV (taking party requests), ANON, AWAY, BAZ (bazaar open), MNT (mentor), NEW (new adventurer), DC (link dead), GM. Players in view before the addon loaded show their icons after their next update.')
+            when(K.name, checkbox, 'Linkshell and name icons##info_k_badges', K, 'badges', 'Left of the name (the name stays centred): the game\'s name icons (link dead, away, GM, seeking a party, level sync, new adventurer, mentor, bazaar, /anon), then a pearl in the player\'s linkshell color nearest the name. Also on your own character. The pictures are in icons\\badges\\ (a missing one shows as a short label). Players in view before the addon loaded show their icons after their next update.')
             when(K.name and K.badges ~= false, function ()
-                slider_int('Icon size##info_k_badge_sz', K, 'badge_size', 10, 40, '%d px', 'The height of the pearl and the labels.')
+                slider_int('Icon size##info_k_badge_sz', K, 'badge_size', 10, 40, '%d px', 'The size of the linkshell pearl. The other icons are drawn 50% larger.')
+                checkbox('Only the most important icon, like the game##info_k_badge_one', K, 'badge_one', 'The game shows one name icon: link dead, then away, GM, seeking a party / level sync, new adventurer / mentor, bazaar. On: only that one (the linkshell pearl still shows). Off: every icon the player has.')
+                slider_int('Space before the name##info_k_badge_gap', K, 'badge_gap', 0, 40, '%d px', 'Between the last icon and the name.')
                 checkbox('Also the new adventurer label##info_k_badge_new', K, 'badge_new', 'Some servers mark every player who has not turned the new adventurer icon off.')
             end)
-        end
-        -- 2.13.2: no checkbox to keep in step: the game's setting is read (learned the first time /names is typed)
-        if not mob and K.name and K.name_names and not SEARCHING then
-            local learned = (tonumber(I.names_cfg) or 0) > 0 and hpp.GCFG and hpp.GCFG.get ~= nil
-            imgui.TextDisabled(('Game names now: %s%s'):format(hpp.names_shown() and 'shown' or 'hidden',
-                learned and ' (read from the game)' or ' (from your last /names; type /names once so the addon can read it)'))
         end
         if not mob and not SEARCHING then imgui.TextDisabled('Level, check and the monster data are for enemies only.') end
     end
     if group('Where each part sits##g_k_pos_' .. kind, 'info', '*', true) then
-        checkbox('Fixed spot on the screen##info_k_abs_' .. kind, K, 'abs', 'The target bar for ' .. KIND_NAME[kind] .. ' stays at one place on the screen instead of over the target, and does not glide in battle. While this window is open a sample shows there with a handle under it: drag the handle to move it.')
-        if K.abs and (tonumber(K.ax) or 0) == 0 and (tonumber(K.ay) or 0) == 0 then
-            K.ax = math.floor((hpp.disp_w and hpp.disp_w > 0 and hpp.disp_w or 1280) * (kind == 'mob' and 0.5 or (kind == 'pc' and 0.3 or 0.7)))
-            K.ay = math.floor((hpp.disp_h and hpp.disp_h > 0 and hpp.disp_h or 720) * 0.25)
-            changed()
-        end
-        when(K.abs, function ()
-            slider_int('Spot: left / right##info_k_ax_' .. kind, K, 'ax', 0, math.max(1, math.floor(hpp.disp_w or 0) > 0 and math.floor(hpp.disp_w) or 4000), '%d px', 'Pixels from the left edge of the screen.')
-            slider_int('Spot: top / bottom##info_k_ay_' .. kind, K, 'ay', 0, math.max(1, math.floor(hpp.disp_h or 0) > 0 and math.floor(hpp.disp_h) or 3000), '%d px', 'Pixels from the top edge of the screen.')
-        end)
+        -- 1.0.6: the fixed spot moved to Target bar > General > Pinned
+        if K.abs and not SEARCHING then imgui.TextDisabled('Pinned to a spot on the screen (General > Pinned): these places are from that spot.') end
         local O = K.off
         el_offsets(mob and I.name or O.name, kind .. '_name', 'Name', INFO_POS.name[1], INFO_POS.name[2])
         el_offsets(mob and I.bar or O.bar, kind .. '_bar', 'Health bar', INFO_POS.bar[1], INFO_POS.bar[2])

@@ -54,24 +54,32 @@ local D = T{
         -- 2.9.0: what each kind of target gets (Enemies / Players / NPCs tabs). abs = drawn at a fixed spot on the
         -- screen (ax, ay = where the pointer tip would be) instead of over the target. Players' and NPCs' elements have
         -- their own offsets (off); an enemy's are the elements' own dx / dy.
-        names_on = false,            -- 2.12.0: the game's /names as last typed (on = the game shows names over characters)
-        names_cfg = 0, names_cfg_on = 0,   -- 2.13.2: the game setting /names changes (learned; 0 = not yet) and its "shown" value
         kinds = T{
             mob = T{ enabled = true, hide_events = true, name = true, hp = true, dist = true, icons = true, abs = false, ax = 0, ay = 0 },
-            -- 2.9.1 self: also your own character. 2.12.0 name_names: no name while /names is on. (2.13.3: these two notes
+            -- 2.9.1 self: also your own character. (2.12.0 name_names, the /names switch, removed in 1.0.5.) (2.13.3: these two notes
             -- had swallowed hp, dist, icons, abs, ax and ay, so players had no defaults for them)
             -- 2.13.4 badges: the linkshell pearl and the game's name icons (LFP, AWAY, ANON...) over the name, badge_size px high
-            pc  = T{ enabled = true, self = false, hide_events = true, name = true, name_names = false, hp = true, dist = true, icons = true, abs = false, ax = 0, ay = 0,
-                     badges = true, badge_size = 16, badge_new = true,
+            pc  = T{ enabled = true, self = false, hide_events = true, name = true, hp = true, dist = true, icons = true, abs = false, ax = 0, ay = 0,
+                     badges = true, badge_size = 16, badge_new = true, badge_gap = 6, badge_one = false,
                      off = T{ name = T{ dx = 0, dy = -66 }, bar = T{ dx = 0, dy = -52 }, dist = T{ dx = 56, dy = -52 }, fx = T{ dx = 0, dy = -98 }, pct = T{ dx = 0, dy = 0 } } },
-            npc = T{ enabled = true, hide_events = true, name = true, name_names = false, hp = false, dist = true, icons = true, abs = false, ax = 0, ay = 0,
+            npc = T{ enabled = true, hide_events = true, name = true, hp = false, dist = true, icons = true, abs = false, ax = 0, ay = 0,
                      off = T{ name = T{ dx = 0, dy = -66 }, bar = T{ dx = 0, dy = -52 }, dist = T{ dx = 56, dy = -52 }, fx = T{ dx = 0, dy = -98 }, pct = T{ dx = 0, dy = 0 } } },
         },
         fade_when  = 'either',      -- battle fade trigger: me | target | either
         fade_delay = 3,             -- seconds in battle before the fade starts
         dock       = true,          -- 2.12.0: target off the screen: its bar docks above the party list (party list's panel)
         dock_pin   = false,         -- 2.12.2: the current target always shows docked there, on screen or not
-        dock_simple = true,         -- 2.12.3: the docked card shows only name, health bar and distance
+        -- 1.0.5: the docked card's own switch for each part (2.12.3's "only name, health and distance" as defaults)
+        dock_name = true, dock_badges = true, dock_bar = true, dock_pct = true, dock_dist = true,
+        dock_level = false, dock_check = false, dock_defev = false, dock_weak = false, dock_mob = false,
+        dock_hate = false,          -- 1.0.7: the party's hate list (monsters fighting the party) on the docked card; click to target
+        dock_hate_max = 8,          -- ...rows at most
+        dock_fx_list = false,       -- 1.0.5: the docked card's effects use the party list's own settings and place (off the card)
+        -- 1.0.5: the docked card's own place for each part (filled from the enemies' places the first time: init)
+        -- 1.0.6: align = the text parts' justify on the docked card
+        dock_pos = T{ init = false, name = T{ dx = 0, dy = 0, align = 'center' }, bar = T{ dx = 0, dy = 0 }, pct = T{ dx = 0, dy = 0 },
+                      dist = T{ dx = 0, dy = 0, align = 'left' }, level = T{ dx = 0, dy = 0, align = 'right' }, check = T{ dx = 0, dy = 0, align = 'center' },
+                      defev = T{ dx = 0, dy = 0, align = 'center' }, weak = T{ dx = 0, dy = 0 }, mob = T{ dx = 0, dy = 0 } },
         dock_fx = true,             -- 1.0.0: effects on the docked card, drawn like the party list's status icons
         dock_fx_size = 32,          -- 1.0.2: ...at their own size (px), wrapped to stay inside the card
         dock_fx_timers = true,      -- 1.0.2: ...with their own countdown switch (the countdown's look follows the party list)
@@ -127,6 +135,7 @@ local D = T{
         -- distance from you to the target, in yalms
         dist = T{ z = 7, show = true, format = 'short', color = T{ 0.85, 0.90, 1.00, 1.00 }, scale = 0.85, fade = false, fade_alpha = 0.2,
                   far = true, far_at = 21.0, far_color = T{ 1.00, 0.55, 0.40, 1.00 },   -- another color beyond this distance (spell range ~21)
+                  pad = true,              -- 1.0.6: the number in a fixed-width slot ("88.8y" wide), so it does not jiggle
                   dx = 56, dy = -52 },                                                   -- left end of the text, by default just right of the bar
 
         -- status effects on the target (learned from spell packets, see pxifx.lua)

@@ -11,7 +11,7 @@ PartyramaXI replaces Final Fantasy XI's own party, alliance and target windows w
 
 Every part can be switched on or off, and everything is set up in game.
 
-Version 1.0.3 · GNU GPL v3 or later (see `LICENSE`) · free to use, change and share.
+Version 1.0.8 · GNU GPL v3 or later (see `LICENSE`) · free to use, change and share.
 
 PartyramaXI is built on **hideparty** by atom0s (Ashita Development Team), the addon that hides the game's party
 windows. Its window hiding lives on in the Hideparty module. See [Credits](#credits) for everyone whose work is used.
@@ -117,16 +117,27 @@ Information next to your target. Enemies, players and NPCs each have their own t
 - **Weaknesses and resistances:** elements, damage types and status effects. When the **MobDB** addon is installed, its
   numbers are used; otherwise the LandSandBoat data built into this addon is used.
 - **Monster info badges:** notorious monster, aggressive, links, how it detects you, and more.
-- **Players:** linkshell color and name labels such as LFP, AWAY, ANON or Bazaar.
+- **Players:** left of the name, a pearl in the linkshell color and the game's name icons: seeking a party, level
+  sync, /anon, /away, bazaar, mentor, new adventurer, link dead and GM.
 - **Battle:** the bar can glide aside and fade parts out while you fight.
 - **Sub-target:** its card slides up or down off your target's card instead of overlapping it (Space between target
   cards, Target bar > General).
-- **Docked card:** when your target is off screen, a card sits above the party list. With **Effects like the party
-  list** on (Target bar > General > Docked card), the effects on it show under the card, drawn like the party list's
+- **Where it shows** (Target bar > General): **Floating** over the target, **Pinned** (a kind's bar moved to a
+  spot on the screen you drag it to, which turns Floating off for it) and **Docked** above the party list (off screen,
+  or always for your current target), each with its own group and description.
+- **Docked card:** when your target is off screen, a card sits above the party list, in one place and size whatever the
+  target is (text parts can be justified left, centre or right).
+- **Hate list:** the docked card can list every monster fighting your party (name, distance, health), and a click on a
+  row targets it. Your current target is on the card above, so it leaves the list until you target something else. Each part of it (name, name
+  icons, health bar, health %, distance, level, check, defense / evasion, weaknesses, monster info, effects) has its
+  own switch and position in Target bar > General > Docked card, apart from the bar over the target. **Same settings
+  as party members** gives its effect icons the party list's size and place, off the card when the list's are. Otherwise,
+  with **Effects** on (Target bar > General > Docked card), the effects on it show under the card, drawn like the party list's
   status icons (same countdown look, sort and pins). They wrap into more rows so every icon stays inside the card,
   with their own **Card icon size** and **Countdown on the card icons** switch.
 
-The target is /checked for you automatically, and those replies are kept out of your chat log. A notorious monster
+The target, and a monster under the sub-target cursor, is /checked for you automatically (three tries, 0.05 s apart), and those replies are kept out of your chat
+log. The level and check fade in 0.2 s after you pick the target. A notorious monster
 or battlefield enemy that can't be gauged shows `??`.
 
 ### RecastXI
